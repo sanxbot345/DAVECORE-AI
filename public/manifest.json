@@ -1,0 +1,20 @@
+{
+  "short_name": "DAVECORE",
+  "name": "DAVECORE Deep Reasoning AI Assistant",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/favicon.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#FAF9F6",
+  "theme_color": "#1F1F1E",
+  "display": "standalone"
+}

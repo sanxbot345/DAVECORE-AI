@@ -1,0 +1,6 @@
+{
+  "name": "DAVECORE AI Chat",
+  "description": "A DAVECORE AI assistant chat application with streaming response support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
