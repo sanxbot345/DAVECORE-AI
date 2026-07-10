@@ -8,6 +8,8 @@ import { LandingPage } from './components/LandingPage';
 import { Menu, PanelLeft, ArrowRight, Settings, Trash2, MessageSquare, Database, Sparkles, X, Check, AlertCircle, ArrowDown, Code2, PenTool, Lightbulb, BookOpen, Pen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import SettingsComponent from './components/Settings';
+import { LoginScreen } from './components/LoginScreen';
+import { getSupabase, isSupabaseConfigured } from './lib/supabase';
 
 const suggestions = [
   {
@@ -57,13 +59,188 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
-  const [userName, setUserName] = useState(() => {
+
+  // User Authentication State (Supabase / Simulated)
+  const [user, setUser] = useState<{ email: string; id: string; provider: string } | null>(() => {
     try {
-      return localStorage.getItem('davecore_username') || localStorage.getItem('fluxel_username') || '';
+      const savedUser = localStorage.getItem('davecore_active_user');
+      return savedUser ? JSON.parse(savedUser) : null;
     } catch (e) {
-      return '';
+      return null;
     }
   });
+
+  // Listen to real-time Supabase auth transitions
+  useEffect(() => {
+    const supabase = getSupabase();
+    if (!supabase) return;
+
+    // Get current session on load
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        const u = {
+          email: session.user.email || '',
+          id: session.user.id,
+          provider: session.user.app_metadata.provider || 'email',
+        };
+        setUser(u);
+        localStorage.setItem('davecore_active_user', JSON.stringify(u));
+      }
+    });
+
+    // Subscribe to auth state changes in real-time
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const u = {
+          email: session.user.email || '',
+          id: session.user.id,
+          provider: session.user.app_metadata.provider || 'email',
+        };
+        setUser(u);
+        localStorage.setItem('davecore_active_user', JSON.stringify(u));
+      } else {
+        setUser(null);
+        localStorage.removeItem('davecore_active_user');
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Device ID for separate Guest/Device storage
+  const [deviceId] = useState<string>(() => {
+    try {
+      let dId = localStorage.getItem('davecore_device_id');
+      if (!dId) {
+        dId = 'dev_' + Math.random().toString(36).substring(2, 15);
+        localStorage.setItem('davecore_device_id', dId);
+      }
+      return dId;
+    } catch (e) {
+      return 'dev_fallback';
+    }
+  });
+
+  // Get key suffix depending on authentication state
+  const getStoragePrefix = (activeUser: typeof user) => {
+    return activeUser ? `user_${activeUser.email}` : `device_${deviceId}`;
+  };
+
+  const [userName, setUserName] = useState('');
+  const [memories, setMemories] = useState<string[]>([]);
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+
+  // Reactive accounts and device isolation synchronization
+  useEffect(() => {
+    const prefix = getStoragePrefix(user);
+    
+    // 1. Load localized username
+    const savedName = localStorage.getItem(`davecore_username_${prefix}`);
+    setUserName(savedName || (user ? user.email.split('@')[0] : ''));
+
+    // 2. Load memories
+    const savedMemories = localStorage.getItem(`davecore_memories_${prefix}`);
+    setMemories(savedMemories ? JSON.parse(savedMemories) : []);
+
+    // 3. Load chat sessions
+    const savedSessions = localStorage.getItem(`davecore_sessions_${prefix}`);
+    const loadedSessions = savedSessions ? JSON.parse(savedSessions) : [];
+    setChatSessions(loadedSessions);
+
+    if (loadedSessions.length > 0) {
+      setCurrentSessionId(loadedSessions[0].id);
+      setMessages(loadedSessions[0].messages || []);
+    } else {
+      setCurrentSessionId(null);
+      setMessages([]);
+    }
+  }, [user]);
+
+  // Persist chat sessions on update
+  useEffect(() => {
+    if (!user && chatSessions.length === 0) return; // wait for initialization
+    const prefix = getStoragePrefix(user);
+    try {
+      localStorage.setItem(`davecore_sessions_${prefix}`, JSON.stringify(chatSessions));
+    } catch (e) {
+      console.error('Error saving chat sessions:', e);
+    }
+  }, [chatSessions, user]);
+
+  // Persist memories on update
+  useEffect(() => {
+    const prefix = getStoragePrefix(user);
+    try {
+      localStorage.setItem(`davecore_memories_${prefix}`, JSON.stringify(memories));
+    } catch (e) {
+      console.error('Error saving memories:', e);
+    }
+  }, [memories, user]);
+
+  // Save localized username helper
+  const handleSaveUserName = (name: string) => {
+    setUserName(name);
+    const prefix = getStoragePrefix(user);
+    localStorage.setItem(`davecore_username_${prefix}`, name);
+  };
+
+  // Extract memories automatically from conversation message content
+  const extractAndAddMemory = (text: string) => {
+    const newFacts: string[] = [];
+    
+    // Name pattern: "nama saya x", "panggil saya x"
+    const nameMatch = text.match(/(?:nama saya|panggil saja saya|panggil saya|saya biasa dipanggil)\s+([A-Za-z ]{2,20})/i);
+    if (nameMatch && nameMatch[1]) {
+      newFacts.push(`Nama saya adalah ${nameMatch[1].trim()}`);
+    }
+    
+    // Profession pattern: "saya adalah seorang x", "saya bekerja sebagai x"
+    const jobMatch = text.match(/(?:saya bekerja sebagai|pekerjaan saya|saya adalah seorang|profesi saya)\s+([A-Za-z ]{3,30})/i);
+    if (jobMatch && jobMatch[1]) {
+      newFacts.push(`Pekerjaan saya: ${jobMatch[1].trim()}`);
+    }
+    
+    // Direct remember instruction: "ingat bahwa x", "tolong ingat x"
+    const rememberMatch = text.match(/(?:tolong ingat|ingat bahwa|ingat)\s+([\s\S]{3,100})/i);
+    if (rememberMatch && rememberMatch[1]) {
+      newFacts.push(`Mengingat detail: ${rememberMatch[1].trim()}`);
+    }
+
+    // Stack preferences: "saya menggunakan x", "saya pakai x", "teknologi favorit saya adalah x"
+    const techMatch = text.match(/(?:saya menggunakan|saya pakai|teknologi favorit saya adalah|saya sedang belajar)\s+([A-Za-z0-9,. ]{3,25})/i);
+    if (techMatch && techMatch[1]) {
+      newFacts.push(`Sedang belajar/menggunakan teknologi: ${techMatch[1].trim()}`);
+    }
+
+    if (newFacts.length > 0) {
+      setMemories(prev => {
+        const updated = [...prev];
+        newFacts.forEach(fact => {
+          if (!updated.some(f => f.toLowerCase() === fact.toLowerCase())) {
+            updated.push(fact);
+          }
+        });
+        return updated;
+      });
+    }
+  };
+
+  const extractMemoryTags = (text: string) => {
+    const regex = /\[MEMORY_ADD:\s*(.*?)\]/gi;
+    const matches = [...text.matchAll(regex)];
+    const extracted: string[] = [];
+    for (const match of matches) {
+      if (match[1] && match[1].trim()) {
+        extracted.push(match[1].trim());
+      }
+    }
+    return {
+      cleanedText: text.replace(/\[MEMORY_ADD:\s*.*?\]/gi, '').trim(),
+      extracted
+    };
+  };
 
   const [theme, setTheme] = useState<'Sistem' | 'Terang' | 'Gelap'>(() => {
     try {
@@ -458,15 +635,6 @@ export default function App() {
   const localized = getLocalizedStrings(appLang);
   const localizedSuggestions = getLocalizedSuggestions(appLang);
 
-  const [chatSessions, setChatSessions] = useState<ChatSession[]>(() => {
-    try {
-      const saved = localStorage.getItem('davecore_chat_sessions') || localStorage.getItem('fluxel_chat_sessions');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
-
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -476,14 +644,6 @@ export default function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const userHasScrolledUpRef = useRef(false);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('davecore_chat_sessions', JSON.stringify(chatSessions));
-    } catch (e) {
-      console.error('Error saving chat sessions:', e);
-    }
-  }, [chatSessions]);
 
   // Dynamic document title based on the active chat history's title
   useEffect(() => {
@@ -577,6 +737,9 @@ export default function App() {
   };
 
   const handleSend = async (content: string) => {
+    // Auto-extract memory facts from user's message in real-time
+    extractAndAddMemory(content);
+
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
@@ -668,6 +831,7 @@ export default function App() {
         body: JSON.stringify({
           messages: [...messages, userMessage].map(({ role, content }) => ({ role, content })),
           appLang,
+          memories, // Pass active account memories to the AI system
         }),
       });
 
@@ -747,15 +911,30 @@ export default function App() {
     } finally {
       setIsTyping(false);
       if (modelMessageId) {
+        const { cleanedText, extracted } = extractMemoryTags(accumulatedContent);
+
+        // Auto-persist extracted memories per account in real-time
+        if (extracted.length > 0) {
+          setMemories(prev => {
+            const updated = [...prev];
+            extracted.forEach(fact => {
+              if (!updated.some(f => f.toLowerCase() === fact.toLowerCase())) {
+                updated.push(fact);
+              }
+            });
+            return updated;
+          });
+        }
+
         setMessages((prev) => 
           prev.map((msg) => 
             msg.id === modelMessageId 
-              ? { ...msg, isStreaming: false } 
+              ? { ...msg, content: cleanedText, isStreaming: false } 
               : msg
           )
         );
 
-        const finalModelMessage: Message = { id: modelMessageId, role: 'model', content: accumulatedContent, isStreaming: false };
+        const finalModelMessage: Message = { id: modelMessageId, role: 'model', content: cleanedText, isStreaming: false };
         setChatSessions(prev => prev.map(s => 
           s.id === targetSessionId
             ? { 
@@ -809,6 +988,17 @@ export default function App() {
     return 'Good Night';
   };
 
+  if (!user) {
+    return (
+      <LoginScreen
+        onLoginSuccess={(u) => {
+          setUser(u);
+          localStorage.setItem('davecore_active_user', JSON.stringify(u));
+        }}
+      />
+    );
+  }
+
   if (showLanding) {
     return (
       <>
@@ -839,11 +1029,7 @@ export default function App() {
               <form onSubmit={(e) => {
                 e.preventDefault();
                 if (userName.trim()) {
-                  try {
-                    localStorage.setItem('davecore_username', userName.trim());
-                  } catch (err) {
-                    console.error(err);
-                  }
+                  handleSaveUserName(userName.trim());
                   setShowLanding(false);
                   setShowNameModal(false);
                 }
@@ -977,9 +1163,9 @@ export default function App() {
               setChatSessions([]);
               setCurrentSessionId(null);
               setMessages([]);
+              const prefix = getStoragePrefix(user);
               try {
-                localStorage.removeItem('davecore_chat_sessions');
-                localStorage.removeItem('fluxel_chat_sessions');
+                localStorage.removeItem(`davecore_sessions_${prefix}`);
               } catch (e) {
                 console.error(e);
               }
@@ -988,18 +1174,53 @@ export default function App() {
             setTheme={setTheme}
             appLang={appLang}
             setAppLang={setAppLang}
+            memories={memories}
+            onAddMemory={(m) => setMemories(prev => [...prev, m])}
+            onDeleteMemory={(idx) => setMemories(prev => prev.filter((_, i) => i !== idx))}
+            user={user}
+            onLogout={async () => {
+              const supabase = getSupabase();
+              if (supabase) {
+                try {
+                  await supabase.auth.signOut();
+                } catch (e) {
+                  console.error('Error signing out:', e);
+                }
+              }
+              setUser(null);
+              localStorage.removeItem('davecore_active_user');
+              setShowLanding(true);
+            }}
           />
         ) : (
           <>
             {/* Header */}
-            <header className="h-14 flex items-center justify-between px-4 md:px-6 bg-transparent">
+            <header className="h-14 flex items-center justify-between px-4 md:px-6 bg-transparent border-b border-claude-border/30 shrink-0">
               <div className="flex items-center gap-2">
-                <button onClick={toggleSidebar} className="hidden lg:flex p-2 -ml-2 rounded-lg hover:bg-sidebar-hover text-muted">
+                <button onClick={toggleSidebar} className="hidden lg:flex p-2 -ml-2 rounded-lg hover:bg-sidebar-hover text-muted" title="Buka Sidebar">
                   <PanelLeft size={20} />
                 </button>
-                <button onClick={toggleSidebar} className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-sidebar-hover text-claude-text">
+                <button onClick={toggleSidebar} className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-sidebar-hover text-claude-text" title="Buka Menu">
                   <BarsStaggered size={20} />
                 </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {/* Custom requested New Chat button with FontAwesome icon */}
+                <button
+                  onClick={handleNewChat}
+                  className="w-10 h-10 flex items-center justify-center bg-[#eae8e2]/60 hover:bg-teal-50 hover:text-teal-600 dark:bg-zinc-800/80 dark:hover:bg-teal-950/40 dark:hover:text-teal-400 rounded-full transition-all text-gray-700 dark:text-gray-300 shadow-sm cursor-pointer border border-gray-200/50 dark:border-zinc-700/50"
+                  title="Chat Baru"
+                >
+                  <i className="fa-regular fa-comment-medical text-base"></i>
+                </button>
+
+                {user && (
+                  <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-[#eae8e2]/40 rounded-full text-xs font-medium text-gray-600 dark:text-gray-400 border border-gray-200/30">
+                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-ping" />
+                    <span className="truncate max-w-[120px]" title={user.email}>{user.email}</span>
+                  </div>
+                )}
               </div>
             </header>
 

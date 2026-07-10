@@ -1,14 +1,28 @@
 import React from 'react';
+import { motion } from 'motion/react';
 
 export function TypingIndicator() {
   return (
-    <div className="flex items-center gap-2.5 w-full py-2 pl-1 animate-pulse">
-      <div className="flex items-center gap-1 bg-gray-50 px-3 py-1.5 rounded-full border border-gray-100">
-        <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-        <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-        <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+    <div className="flex items-center gap-2.5 w-full py-2 pl-1">
+      <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-zinc-800/80 px-4 py-2.5 rounded-2xl border border-gray-200/50 dark:border-zinc-700/50 shadow-sm">
+        {[0, 1, 2].map((i) => (
+          <motion.span
+            key={i}
+            className="w-2 h-2 bg-teal-600 dark:bg-teal-500 rounded-full"
+            animate={{
+              y: ["0px", "-6px", "0px"]
+            }}
+            transition={{
+              duration: 0.6,
+              repeat: Infinity,
+              ease: "easeInOut",
+              delay: i * 0.15
+            }}
+          />
+        ))}
       </div>
     </div>
   );
 }
+
 
