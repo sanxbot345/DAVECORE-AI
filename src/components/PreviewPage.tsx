@@ -190,27 +190,16 @@ export function PreviewPage({ code, onClose }: PreviewPageProps) {
       </header>
 
       {/* Preview Content Area */}
-      <div className="flex-1 overflow-hidden bg-[#FAF9F6] flex items-center justify-center p-0 md:p-8 relative">
+      <div className={`flex-1 overflow-hidden relative flex items-center justify-center ${
+        device === 'mobile' ? 'bg-[#FAF9F6] p-4 md:p-8' : 'bg-white p-0'
+      }`}>
         <div 
-          className={`bg-white md:shadow-[0_10px_40px_rgba(0,0,0,0.06)] transition-all duration-300 ease-in-out md:border border-gray-200 md:rounded-[18px] overflow-hidden flex flex-col relative ${
-            device === 'mobile' ? 'w-full md:w-[385px] h-full md:h-[820px] md:rounded-[40px] md:border-[10px] md:border-gray-800 shadow-2xl' : 'w-full h-full max-w-6xl'
+          className={`bg-white transition-all duration-300 ease-in-out overflow-hidden flex flex-col relative ${
+            device === 'mobile' 
+              ? 'w-full md:w-[385px] h-full md:h-[820px] md:rounded-[40px] md:border-[10px] md:border-gray-800 shadow-2xl' 
+              : 'w-full h-full'
           }`}
         >
-          {/* Mock Browser Control Header - makes it feel like an elegant active sandbox */}
-          {device !== 'mobile' && (
-            <div className="bg-gray-50/85 border-b border-gray-100 px-4 py-3 flex items-center gap-2 shrink-0 select-none backdrop-blur-md">
-              <div className="flex gap-1.5 items-center mr-4">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-400 block opacity-80" />
-                <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 block opacity-80" />
-                <span className="w-2.5 h-2.5 rounded-full bg-green-400 block opacity-80" />
-              </div>
-              <div className="flex-1 max-w-xl mx-auto bg-white border border-gray-200/80 rounded-lg py-1 px-3 text-[11.5px] text-gray-500 font-mono flex items-center gap-2 justify-center truncate shadow-inner">
-                <span className="text-emerald-500 select-none text-[8px] animate-pulse">●</span>
-                <span>{typeof window !== 'undefined' ? window.location.host : 'localhost:3000'}/pub/{tempId || 'live'}</span>
-              </div>
-            </div>
-          )}
-
           {/* Iframe Viewport Container with loading state overlay */}
           <div className="flex-1 relative w-full h-full bg-white">
             {tempUrl ? (
