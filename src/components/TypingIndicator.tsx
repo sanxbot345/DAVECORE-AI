@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 export function TypingIndicator() {
   return (
     <div className="flex items-center gap-2.5 w-full py-2 pl-1">
-      <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-zinc-800/80 px-4 py-2.5 rounded-2xl border border-gray-200/50 dark:border-zinc-700/50 shadow-sm">
+      <div className="flex items-center gap-1.5 bg-transparent px-4 py-2.5 rounded-2xl">
         {[0, 1, 2].map((i) => (
           <motion.span
             key={i}

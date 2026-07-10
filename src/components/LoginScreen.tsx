@@ -7,6 +7,101 @@ interface LoginScreenProps {
   onLoginSuccess: (user: { email: string; id: string; provider: string }) => void;
 }
 
+// Robust error formatter to prevent rendering empty objects or raw error objects
+const formatError = (err: any): string => {
+  if (!err) return 'Terjadi kesalahan tidak diketahui.';
+  if (typeof err === 'string') return err;
+  
+  // Extract all readable fields from the error object
+  let message = '';
+  let details = '';
+  let hint = '';
+  let code = '';
+  let status = '';
+
+  // 1. Direct checks on standard error fields
+  if (typeof err === 'object') {
+    if (err.message && typeof err.message === 'string') {
+      message = err.message;
+    }
+    if (err.error_description && typeof err.error_description === 'string') {
+      message = err.error_description;
+    }
+    if (err.error && typeof err.error === 'string') {
+      message = err.error;
+    } else if (err.error && typeof err.error === 'object') {
+      if (err.error.message && typeof err.error.message === 'string') {
+        message = err.error.message;
+      }
+    }
+    if (err.details && typeof err.details === 'string') {
+      details = err.details;
+    }
+    if (err.hint && typeof err.hint === 'string') {
+      hint = err.hint;
+    }
+    if (err.code && typeof err.code === 'string') {
+      code = err.code;
+    }
+    if (err.status !== undefined) {
+      status = String(err.status);
+    }
+  }
+
+  // 2. Reflective checks for non-enumerable properties (e.g. if the object inherits from Error but isn't detected as an instance)
+  try {
+    const props = Object.getOwnPropertyNames(err);
+    for (const prop of props) {
+      if (!message && prop === 'message' && typeof err[prop] === 'string') {
+        message = err[prop];
+      }
+      if (!details && prop === 'details' && typeof err[prop] === 'string') {
+        details = err[prop];
+      }
+      if (!hint && prop === 'hint' && typeof err[prop] === 'string') {
+        hint = err[prop];
+      }
+      if (!code && prop === 'code' && typeof err[prop] === 'string') {
+        code = err[prop];
+      }
+      if (!status && prop === 'status' && err[prop] !== undefined) {
+        status = String(err[prop]);
+      }
+    }
+  } catch (e) {
+    // Ignore reflection errors
+  }
+
+  // If we found a message, return it with details
+  if (message) {
+    let finalMsg = message;
+    if (code) finalMsg += ` (Code: ${code})`;
+    if (status) finalMsg += ` (Status: ${status})`;
+    if (details) finalMsg += ` - ${details}`;
+    if (hint) finalMsg += ` (Hint: ${hint})`;
+    return finalMsg;
+  }
+
+  // If no message was found, serialize the object properties so we don't just output "{}"
+  try {
+    const allProps: any = {};
+    const props = Object.getOwnPropertyNames(err);
+    for (const prop of props) {
+      if (typeof err[prop] !== 'function' && prop !== 'stack') {
+        allProps[prop] = err[prop];
+      }
+    }
+    
+    const str = JSON.stringify(allProps, null, 2);
+    if (str === '{}') {
+      return `Error: ${String(err)}`;
+    }
+    return str;
+  } catch (e) {
+    return 'Terjadi kesalahan tidak diketahui: ' + String(err);
+  }
+};
+
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [step, setStep] = useState<'options' | 'email' | 'otp'>('options');
   const [email, setEmail] = useState('');
@@ -26,7 +121,10 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
     try {
       if (!isSupabaseConfigured || !supabase) {
-        throw new Error('Supabase belum dikonfigurasi. Harap tentukan VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY di pengaturan lingkungan Anda.');
+        setInfoMessage(`[MODE SIMULASI] Kode OTP simulasi dikirim ke ${email}. Gunakan kode 123456 untuk masuk.`);
+        setStep('otp');
+        setLoading(false);
+        return;
       }
 
       // Real Supabase Auth: signInWithOtp
@@ -38,14 +136,14 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       });
 
       if (otpError) {
-        throw new Error(otpError.message);
+        throw otpError; // Let the catch block format it
       }
 
       setInfoMessage(`Kode OTP asli telah dikirim ke ${email}`);
       setStep('otp');
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Gagal mengirim kode OTP. Silakan coba lagi.');
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }
@@ -60,18 +158,51 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
     try {
       if (!isSupabaseConfigured || !supabase) {
-        throw new Error('Supabase belum dikonfigurasi.');
+        if (otp.trim() === '123456') {
+          onLoginSuccess({
+            email: email.trim(),
+            id: `simulated_${email.trim().replace(/[^a-zA-Z0-9]/g, '_')}`,
+            provider: 'simulated'
+          });
+        } else {
+          throw new Error('Kode OTP simulasi salah! Harap gunakan kode 123456.');
+        }
+        setLoading(false);
+        return;
       }
 
-      // Real Supabase Verification
-      const { data, error: verifyError } = await supabase.auth.verifyOtp({
+      // Real Supabase Verification: try 'magiclink' first, then 'signup' fallback for new users
+      let { data, error: verifyError } = await supabase.auth.verifyOtp({
         email: email.trim(),
         token: otp.trim(),
-        type: 'email'
+        type: 'magiclink'
       });
 
       if (verifyError) {
-        throw new Error(verifyError.message);
+        // Fallback to 'signup' if first attempt fails (newly registered user)
+        const { data: signupData, error: signupError } = await supabase.auth.verifyOtp({
+          email: email.trim(),
+          token: otp.trim(),
+          type: 'signup'
+        });
+
+        if (signupError) {
+          // Additional fallback to 'email' if both fail (some client or server configurations)
+          const { data: emailData, error: emailError } = await supabase.auth.verifyOtp({
+            email: email.trim(),
+            token: otp.trim(),
+            type: 'email' as any
+          });
+
+          if (emailError) {
+            // Throw verifyError or signupError or emailError
+            throw verifyError || signupError || emailError;
+          } else {
+            data = emailData;
+          }
+        } else {
+          data = signupData;
+        }
       }
 
       if (data?.user) {
@@ -85,7 +216,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Verifikasi OTP gagal.');
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }
@@ -98,7 +229,13 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
     try {
       if (!isSupabaseConfigured || !supabase) {
-        throw new Error('Supabase belum dikonfigurasi. Harap tentukan VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY di pengaturan lingkungan Anda.');
+        onLoginSuccess({
+          email: `${provider}_user@example.com`,
+          id: `simulated_${provider}_user`,
+          provider: provider
+        });
+        setLoading(false);
+        return;
       }
 
       // Real Supabase OAuth signin
@@ -111,7 +248,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       if (authError) throw authError;
     } catch (err: any) {
       console.error(err);
-      setError(err.message || `Gagal masuk dengan ${provider}`);
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }
@@ -120,126 +257,9 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   return (
     <div className="min-h-[100dvh] w-full bg-white text-black flex flex-col items-center justify-between py-12 px-6 font-sans">
       
-      {!isSupabaseConfigured && (
-        <div className="w-full max-w-md bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4 text-xs text-amber-800 flex items-start gap-2.5 shadow-sm">
-          <span className="text-amber-500 font-bold shrink-0">⚠️ PERINGATAN</span>
-          <div>
-            <p className="font-semibold mb-0.5">Sistem Autentikasi Real-Time Aktif</p>
-            <p className="text-[11px] leading-relaxed opacity-90">
-              Aplikasi dikonfigurasi untuk menggunakan mode real-time murni (tanpa simulasi). Harap konfigurasikan variabel lingkungan <strong className="underline">VITE_SUPABASE_URL</strong> dan <strong className="underline">VITE_SUPABASE_ANON_KEY</strong> untuk mengaktifkan fungsionalitas login real-time Supabase.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Spacer to align center content */}
-      <div className="flex-1 flex flex-col items-center justify-center w-full max-w-md">
+      {/* Spacer to align content to the bottom */}
+      <div className="flex-1 flex flex-col items-center justify-end w-full max-w-md pb-6">
         
-        {/* Centered Logo container */}
-        <div className="flex flex-col items-center">
-          {/* Stunning Glowing Neural AI Core Logo */}
-          <div className="relative animate-[float_4s_ease-in-out_infinite]">
-            {/* Soft glowing ambient circle behind logo */}
-            <div className="absolute inset-0 bg-blue-400/20 blur-3xl rounded-full scale-75" />
-            
-            <svg className="w-28 h-28 relative z-10" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <radialGradient id="ai-glow" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.4" />
-                  <stop offset="100%" stopColor="#1E3A8A" stopOpacity="0" />
-                </radialGradient>
-                <linearGradient id="ai-grad-primary" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#60A5FA" />
-                  <stop offset="50%" stopColor="#8B5CF6" />
-                  <stop offset="100%" stopColor="#EC4899" />
-                </linearGradient>
-                <linearGradient id="ai-grad-secondary" x1="100%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="#34D399" />
-                  <stop offset="100%" stopColor="#3B82F6" />
-                </linearGradient>
-                <filter id="glow-effect" x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="6" result="blur" />
-                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                </filter>
-              </defs>
-
-              {/* Ambient background glow */}
-              <circle cx="100" cy="100" r="80" fill="url(#ai-glow)" />
-
-              {/* Outer Processing Ring with Cyber Nodes */}
-              <circle cx="100" cy="100" r="70" stroke="url(#ai-grad-primary)" strokeWidth="1.5" strokeDasharray="12 6 4 6" className="animate-[spin_40s_linear_infinite]" opacity="0.6" />
-              <circle cx="100" cy="100" r="58" stroke="url(#ai-grad-secondary)" strokeWidth="1" strokeDasharray="5 10" className="animate-[spin_20s_linear_infinite_reverse]" opacity="0.4" />
-
-              {/* Tech Circuit Pins (Floating AI bits) */}
-              <g opacity="0.8">
-                <circle cx="100" cy="20" r="3" fill="#60A5FA" />
-                <line x1="100" y1="20" x2="100" y2="35" stroke="#60A5FA" strokeWidth="1.5" />
-                <circle cx="100" cy="180" r="3" fill="#8B5CF6" />
-                <line x1="100" y1="180" x2="100" y2="165" stroke="#8B5CF6" strokeWidth="1.5" />
-                <circle cx="20" cy="100" r="3" fill="#34D399" />
-                <line x1="20" y1="100" x2="35" y2="100" stroke="#34D399" strokeWidth="1.5" />
-                <circle cx="180" cy="100" r="3" fill="#EC4899" />
-                <line x1="180" y1="100" x2="165" y2="100" stroke="#EC4899" strokeWidth="1.5" />
-              </g>
-
-              {/* Core Glowing Neural AI Brain Shape */}
-              <g filter="url(#glow-effect)">
-                {/* Left hemisphere brain curves */}
-                <path 
-                  d="M 100,60 C 85,55 60,65 60,85 C 60,100 70,105 70,115 C 70,125 60,130 65,140 C 70,150 90,145 100,135" 
-                  stroke="url(#ai-grad-primary)" 
-                  strokeWidth="3" 
-                  strokeLinecap="round"
-                  fill="none"
-                />
-                {/* Right hemisphere brain curves */}
-                <path 
-                  d="M 100,60 C 115,55 140,65 140,85 C 140,100 130,105 130,115 C 130,125 140,130 135,140 C 130,150 110,145 100,135" 
-                  stroke="url(#ai-grad-primary)" 
-                  strokeWidth="3" 
-                  strokeLinecap="round"
-                  fill="none"
-                />
-              </g>
-
-              {/* Neural Network Nodes and Synaptic Connections */}
-              <g>
-                {/* Central core node */}
-                <circle cx="100" cy="100" r="6" fill="#FFFFFF" filter="url(#glow-effect)" />
-                <circle cx="100" cy="100" r="4" fill="#8B5CF6" />
-
-                {/* Surrounding synaptic nodes */}
-                <circle cx="75" cy="80" r="3" fill="#60A5FA" />
-                <circle cx="125" cy="80" r="3" fill="#60A5FA" />
-                <circle cx="75" cy="120" r="3" fill="#EC4899" />
-                <circle cx="125" cy="120" r="3" fill="#EC4899" />
-                <circle cx="100" cy="72" r="3" fill="#34D399" />
-                <circle cx="100" cy="128" r="3" fill="#34D399" />
-
-                {/* Inter-connections */}
-                <line x1="100" y1="100" x2="75" y2="80" stroke="#60A5FA" strokeWidth="0.75" opacity="0.6" />
-                <line x1="100" y1="100" x2="125" y2="80" stroke="#60A5FA" strokeWidth="0.75" opacity="0.6" />
-                <line x1="100" y1="100" x2="75" y2="120" stroke="#EC4899" strokeWidth="0.75" opacity="0.6" />
-                <line x1="100" y1="100" x2="125" y2="120" stroke="#EC4899" strokeWidth="0.75" opacity="0.6" />
-                <line x1="100" y1="100" x2="100" y2="72" stroke="#34D399" strokeWidth="0.75" opacity="0.6" />
-                <line x1="100" y1="100" x2="100" y2="128" stroke="#34D399" strokeWidth="0.75" opacity="0.6" />
-
-                <line x1="75" y1="80" x2="100" y2="72" stroke="#60A5FA" strokeWidth="0.5" opacity="0.4" />
-                <line x1="125" y1="80" x2="100" y2="72" stroke="#60A5FA" strokeWidth="0.5" opacity="0.4" />
-                <line x1="75" y1="120" x2="100" y2="128" stroke="#EC4899" strokeWidth="0.5" opacity="0.4" />
-                <line x1="125" y1="120" x2="100" y2="128" stroke="#EC4899" strokeWidth="0.5" opacity="0.4" />
-              </g>
-
-              {/* Sparkling logic pulses */}
-              <circle cx="85" cy="95" r="1.5" fill="#FFFFFF" className="animate-ping" style={{ animationDuration: '3s' }} />
-              <circle cx="115" cy="95" r="1.5" fill="#FFFFFF" className="animate-ping" style={{ animationDuration: '2.5s' }} />
-            </svg>
-          </div>
-
-          {/* Small grey dot below the logo exactly as in the photo */}
-          <div className="w-2.5 h-2.5 bg-gray-200 rounded-full mt-5 mb-12" />
-        </div>
-
         {/* Dynamic step transitions */}
         <AnimatePresence mode="wait">
           {step === 'options' && (
@@ -452,7 +472,6 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
       {/* Footer credits or simple link */}
       <div className="text-[11px] text-gray-400 font-mono tracking-wider text-center">
-        DAVECORE SECURE AUTHENTICATION SYSTEM
       </div>
     </div>
   );

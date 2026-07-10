@@ -2,10 +2,25 @@ import { createClient } from '@supabase/supabase-js';
 
 // Get environment variables
 const env = (import.meta as any).env || {};
-const supabaseUrl = env.VITE_SUPABASE_URL;
-const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrlRaw = env.VITE_SUPABASE_URL || '';
+const supabaseAnonKeyRaw = env.VITE_SUPABASE_ANON_KEY || '';
 
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
+// Verify that the URL is a valid URL starting with http:// or https:// and not a simple placeholder
+const checkIsValidUrl = (url: string): boolean => {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch (e) {
+    return false;
+  }
+};
+
+export const isSupabaseConfigured = !!(
+  supabaseUrlRaw && 
+  supabaseAnonKeyRaw && 
+  checkIsValidUrl(supabaseUrlRaw)
+);
 
 // Lazy initialization of supabase client to prevent crashing on startup
 let supabaseClientInstance: any = null;
@@ -15,7 +30,13 @@ export function getSupabase() {
     return null;
   }
   if (!supabaseClientInstance) {
-    supabaseClientInstance = createClient(supabaseUrl, supabaseAnonKey);
+    try {
+      supabaseClientInstance = createClient(supabaseUrlRaw, supabaseAnonKeyRaw);
+    } catch (e) {
+      console.error('Failed to initialize Supabase client:', e);
+      return null;
+    }
   }
   return supabaseClientInstance;
 }
+

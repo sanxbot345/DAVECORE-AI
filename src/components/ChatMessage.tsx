@@ -71,55 +71,11 @@ export const ChatMessage = React.memo(function ChatMessage({ message, onPreviewC
 
   const [displayedText, setDisplayedText] = useState('');
   const lastTextRef = useRef('');
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    if (isUser || !message.isStreaming) {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-      setDisplayedText(remainingText);
-      lastTextRef.current = remainingText;
-      return;
-    }
-
-    const currentLength = lastTextRef.current.length;
-    const targetText = remainingText;
-
-    if (targetText.length > currentLength) {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-
-      let index = currentLength;
-      intervalRef.current = setInterval(() => {
-        if (index < targetText.length) {
-          index += 5;
-          if (index > targetText.length) {
-            index = targetText.length;
-          }
-          setDisplayedText(targetText.substring(0, index));
-          lastTextRef.current = targetText.substring(0, index);
-        } else {
-          if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-            intervalRef.current = null;
-          }
-        }
-      }, 8);
-    } else {
-      setDisplayedText(remainingText);
-      lastTextRef.current = remainingText;
-    }
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [remainingText, message.isStreaming, isUser]);
+    setDisplayedText(remainingText);
+    lastTextRef.current = remainingText;
+  }, [remainingText]);
 
   if (isUser) {
     return (

@@ -16,6 +16,7 @@ interface SettingsProps {
   onDeleteMemory: (index: number) => void;
   user: { email: string; id: string; provider: string } | null;
   onLogout: () => void;
+  storagePrefix: string;
 }
 
 const getSettingsTranslations = (lang: string) => {
@@ -77,13 +78,14 @@ export default function Settings({
   onAddMemory,
   onDeleteMemory,
   user,
-  onLogout
+  onLogout,
+  storagePrefix
 }: SettingsProps) {
   const s = getSettingsTranslations(appLang);
 
   const [hapticFeedback, setHapticFeedback] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem('davecore_haptic');
+      const saved = localStorage.getItem(`davecore_haptic_${storagePrefix}`);
       return saved !== 'false'; // default to true
     } catch (e) {
       return true;
@@ -93,17 +95,28 @@ export default function Settings({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
   const [newMemoryInput, setNewMemoryInput] = useState('');
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  // Sync haptic load when active account prefix changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`davecore_haptic_${storagePrefix}`);
+      setHapticFeedback(saved !== 'false');
+    } catch (e) {
+      setHapticFeedback(true);
+    }
+  }, [storagePrefix]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('davecore_haptic', String(hapticFeedback));
+      localStorage.setItem(`davecore_haptic_${storagePrefix}`, String(hapticFeedback));
     } catch (e) {
       console.error(e);
     }
     if (hapticFeedback && window.navigator && window.navigator.vibrate) {
       window.navigator.vibrate(40);
     }
-  }, [hapticFeedback]);
+  }, [hapticFeedback, storagePrefix]);
 
   const handleClearHistory = () => {
     setDeleteSuccess(true);
@@ -156,7 +169,7 @@ export default function Settings({
           <button
             onClick={() => {
               triggerHaptic();
-              onLogout();
+              setShowLogoutConfirm(true);
             }}
             className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-red-200 dark:border-red-950/40 bg-red-50/20 hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 text-xs font-semibold transition-all cursor-pointer"
             title="Keluar dari akun Anda"
@@ -185,26 +198,19 @@ export default function Settings({
 
       {/* Brain AI Memory Bank Section (PRO FEATURE) */}
       <div className="bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800/80 rounded-[28px] p-5 shadow-[0_4px_24px_rgba(0,0,0,0.01)] mb-6">
-        <div className="flex items-start gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-4">
           <div className="p-2 bg-teal-50 dark:bg-teal-950/30 text-teal-600 dark:text-teal-400 rounded-xl">
             <Brain size={20} />
           </div>
           <div>
-            <h3 className="font-serif text-[15px] md:text-[16px] font-bold text-gray-900 dark:text-zinc-100">🧠 Memori AI DAVECORE</h3>
-            <p className="text-xs text-gray-500 dark:text-zinc-400 leading-relaxed mt-0.5">
-              DAVECORE mempelajari informasi, preferensi, dan detail penting dari obrolan Anda secara otomatis untuk memberikan respons yang cerdas dan dipersonalisasi.
-            </p>
+            <h3 className="font-serif text-[15px] md:text-[16px] font-bold text-gray-900 dark:text-zinc-100">Memory</h3>
           </div>
         </div>
 
         {/* List of Memories */}
-        <div className="space-y-2 max-h-48 overflow-y-auto mb-4 pr-1">
-          {memories.length === 0 ? (
-            <div className="p-4 border border-dashed border-gray-100 dark:border-zinc-800 rounded-2xl text-center text-xs text-gray-400">
-              Belum ada memori tersimpan. Katakan sesuatu seperti "Ingat bahwa saya suka React" di obrolan Anda untuk menyimpannya secara otomatis.
-            </div>
-          ) : (
-            memories.map((mem, index) => (
+        {memories.length > 0 && (
+          <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+            {memories.map((mem, index) => (
               <div 
                 key={index}
                 className="flex items-center justify-between p-3 bg-gray-50/60 dark:bg-zinc-800/40 rounded-xl border border-gray-100/50 dark:border-zinc-800/50 text-xs"
@@ -221,9 +227,9 @@ export default function Settings({
                   <X size={14} />
                 </button>
               </div>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* App Prefs Card (Haptics, etc.) */}
@@ -338,6 +344,49 @@ export default function Settings({
           </div>
         </div>
       </div>
+
+      {/* Logout Confirmation Dialog Modal */}
+      <AnimatePresence>
+        {showLogoutConfirm && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-md flex items-center justify-center z-[100] p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white dark:bg-zinc-900 border border-gray-200/50 dark:border-zinc-800 p-6 md:p-8 rounded-[28px] shadow-2xl max-w-sm w-full text-center space-y-6"
+            >
+              <h3 className="text-base md:text-lg font-bold text-gray-900 dark:text-zinc-100 font-sans">
+                Apakah Anda Yakin
+              </h3>
+              
+              <div className="flex gap-4 justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic();
+                    setShowLogoutConfirm(false);
+                  }}
+                  className="flex-1 py-3 border border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 rounded-[200px] text-xs font-bold hover:bg-gray-50 dark:hover:bg-zinc-800 transition-all cursor-pointer"
+                >
+                  Tidak
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic();
+                    setShowLogoutConfirm(false);
+                    onLogout();
+                  }}
+                  className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-[200px] text-xs font-bold transition-all cursor-pointer shadow-md"
+                >
+                  Keluar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

@@ -132,6 +132,8 @@ export default function App() {
   const [memories, setMemories] = useState<string[]>([]);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
 
+  const loadedPrefixRef = useRef<string | null>(null);
+
   // Reactive accounts and device isolation synchronization
   useEffect(() => {
     const prefix = getStoragePrefix(user);
@@ -149,6 +151,21 @@ export default function App() {
     const loadedSessions = savedSessions ? JSON.parse(savedSessions) : [];
     setChatSessions(loadedSessions);
 
+    // 4. Load localized theme
+    const savedTheme = localStorage.getItem(`davecore_theme_${prefix}`);
+    setTheme((savedTheme as any) || 'Sistem');
+
+    // 5. Load localized app language
+    const savedLang = localStorage.getItem(`davecore_app_lang_${prefix}`);
+    if (savedLang) {
+      setAppLang(savedLang);
+    } else {
+      // Auto-detect browser/system/phone language
+      const navLang = window.navigator.language || (window.navigator as any).userLanguage || '';
+      const code = navLang.substring(0, 2).toLowerCase();
+      setAppLang(code === 'id' ? 'Bahasa Indonesia' : 'English');
+    }
+
     if (loadedSessions.length > 0) {
       setCurrentSessionId(loadedSessions[0].id);
       setMessages(loadedSessions[0].messages || []);
@@ -156,12 +173,15 @@ export default function App() {
       setCurrentSessionId(null);
       setMessages([]);
     }
+
+    // Set loadedPrefix to allow subsequent writes
+    loadedPrefixRef.current = prefix;
   }, [user]);
 
   // Persist chat sessions on update
   useEffect(() => {
-    if (!user && chatSessions.length === 0) return; // wait for initialization
     const prefix = getStoragePrefix(user);
+    if (loadedPrefixRef.current !== prefix) return; // Prevent premature default empty save
     try {
       localStorage.setItem(`davecore_sessions_${prefix}`, JSON.stringify(chatSessions));
     } catch (e) {
@@ -172,6 +192,7 @@ export default function App() {
   // Persist memories on update
   useEffect(() => {
     const prefix = getStoragePrefix(user);
+    if (loadedPrefixRef.current !== prefix) return; // Prevent premature default empty save
     try {
       localStorage.setItem(`davecore_memories_${prefix}`, JSON.stringify(memories));
     } catch (e) {
@@ -242,9 +263,26 @@ export default function App() {
     };
   };
 
+  const getInitialPrefix = () => {
+    try {
+      const savedUser = localStorage.getItem('davecore_active_user');
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        if (parsed && parsed.email) {
+          return `user_${parsed.email}`;
+        }
+      }
+      const dId = localStorage.getItem('davecore_device_id') || 'dev_default';
+      return `device_${dId}`;
+    } catch (e) {
+      return 'device_default';
+    }
+  };
+
   const [theme, setTheme] = useState<'Sistem' | 'Terang' | 'Gelap'>(() => {
     try {
-      return (localStorage.getItem('davecore_theme') as any) || 'Sistem';
+      const prefix = getInitialPrefix();
+      return (localStorage.getItem(`davecore_theme_${prefix}`) as any) || 'Sistem';
     } catch (e) {
       return 'Sistem';
     }
@@ -252,7 +290,8 @@ export default function App() {
 
   const [appLang, setAppLang] = useState<string>(() => {
     try {
-      const saved = localStorage.getItem('davecore_app_lang');
+      const prefix = getInitialPrefix();
+      const saved = localStorage.getItem(`davecore_app_lang_${prefix}`);
       if (saved) return saved;
       
       // Auto-detect browser/system/phone language
@@ -269,8 +308,10 @@ export default function App() {
 
   // Apply theme class to document element on mount and when theme changes
   useEffect(() => {
+    const prefix = getStoragePrefix(user);
+    if (loadedPrefixRef.current !== prefix) return; // Prevent premature default empty save
     try {
-      localStorage.setItem('davecore_theme', theme);
+      localStorage.setItem(`davecore_theme_${prefix}`, theme);
     } catch (e) {
       console.error(e);
     }
@@ -288,16 +329,18 @@ export default function App() {
         root.classList.remove('dark');
       }
     }
-  }, [theme]);
+  }, [theme, user]);
 
   // Persist app language change
   useEffect(() => {
+    const prefix = getStoragePrefix(user);
+    if (loadedPrefixRef.current !== prefix) return; // Prevent premature default empty save
     try {
-      localStorage.setItem('davecore_app_lang', appLang);
+      localStorage.setItem(`davecore_app_lang_${prefix}`, appLang);
     } catch (e) {
       console.error(e);
     }
-  }, [appLang]);
+  }, [appLang, user]);
 
   // Translation function helper
   const getLocalizedStrings = (lang: string) => {
@@ -1191,6 +1234,7 @@ export default function App() {
               localStorage.removeItem('davecore_active_user');
               setShowLanding(true);
             }}
+            storagePrefix={getStoragePrefix(user)}
           />
         ) : (
           <>
@@ -1209,10 +1253,10 @@ export default function App() {
                 {/* Custom requested New Chat button with FontAwesome icon */}
                 <button
                   onClick={handleNewChat}
-                  className="w-10 h-10 flex items-center justify-center bg-[#eae8e2]/60 hover:bg-teal-50 hover:text-teal-600 dark:bg-zinc-800/80 dark:hover:bg-teal-950/40 dark:hover:text-teal-400 rounded-full transition-all text-gray-700 dark:text-gray-300 shadow-sm cursor-pointer border border-gray-200/50 dark:border-zinc-700/50"
+                  className="w-10 h-10 flex items-center justify-center bg-white hover:bg-gray-50 dark:bg-zinc-900 dark:hover:bg-zinc-800 rounded-full transition-all text-gray-700 dark:text-gray-300 shadow-sm cursor-pointer border border-gray-200/50 dark:border-zinc-700/50"
                   title="Chat Baru"
                 >
-                  <i className="fa-regular fa-comment-medical text-base"></i>
+                  <i className="fa-solid fa-comment text-base"></i>
                 </button>
 
                 {user && (
