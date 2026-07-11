@@ -21,7 +21,9 @@ export function ChatInput({ onSend, disabled, placeholder }: ChatInputProps) {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       const scrollHeight = textareaRef.current.scrollHeight;
-      textareaRef.current.style.height = `${Math.min(scrollHeight, 300)}px`;
+      // Provide a safe minimum height to prevent squishing the line height on mobile WebKit/Blink engines
+      const targetHeight = Math.max(scrollHeight, 44);
+      textareaRef.current.style.height = `${Math.min(targetHeight, 300)}px`;
       if (scrollHeight > 300) {
         textareaRef.current.style.overflowY = 'auto';
       } else {
@@ -145,7 +147,7 @@ export function ChatInput({ onSend, disabled, placeholder }: ChatInputProps) {
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder || "Tanya DAVECORE apapun..."}
-        className="w-full px-3 py-3 outline-none resize-none text-[15px] placeholder:text-[16px] placeholder:text-gray-400 bg-transparent disabled:opacity-50 overflow-hidden"
+        className="w-full px-3 py-2 outline-none resize-none text-[15.5px] placeholder:text-[15.5px] placeholder:text-gray-400 bg-transparent disabled:opacity-50 overflow-hidden leading-relaxed text-left placeholder:text-left"
         rows={1}
         disabled={disabled}
       />

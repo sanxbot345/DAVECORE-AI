@@ -53,8 +53,36 @@ const BarsStaggered = ({ size = 20, className = "" }: { size?: number; className
   </svg>
 );
 
+const getInitialPrefix = () => {
+  try {
+    const savedUser = localStorage.getItem('davecore_active_user');
+    if (savedUser) {
+      const parsed = JSON.parse(savedUser);
+      if (parsed && parsed.email) {
+        return `user_${parsed.email}`;
+      }
+    }
+    const dId = localStorage.getItem('davecore_device_id') || 'dev_default';
+    return `device_${dId}`;
+  } catch (e) {
+    return 'device_default';
+  }
+};
+
 export default function App() {
-  const [showLanding, setShowLanding] = useState(true);
+  const [showLanding, setShowLanding] = useState(() => {
+    try {
+      const prefix = getInitialPrefix();
+      const savedName = localStorage.getItem(`davecore_username_${prefix}`);
+      if (!savedName || !savedName.trim()) {
+        return true;
+      }
+      const saved = localStorage.getItem(`davecore_show_landing_${prefix}`);
+      return saved === 'false' ? false : true;
+    } catch (e) {
+      return true;
+    }
+  });
   const [showNameModal, setShowNameModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
@@ -131,8 +159,107 @@ export default function App() {
   const [userName, setUserName] = useState('');
   const [memories, setMemories] = useState<string[]>([]);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+  const [theme, setTheme] = useState<'Sistem' | 'Terang' | 'Gelap'>(() => {
+    try {
+      const prefix = getInitialPrefix();
+      return (localStorage.getItem(`davecore_theme_${prefix}`) as any) || 'Sistem';
+    } catch (e) {
+      return 'Sistem';
+    }
+  });
+
+  const [appLang, setAppLang] = useState<string>(() => {
+    try {
+      const prefix = getInitialPrefix();
+      const saved = localStorage.getItem(`davecore_app_lang_${prefix}`);
+      if (saved) return saved;
+      
+      // Auto-detect browser/system/phone language
+      const navLang = window.navigator.language || (window.navigator as any).userLanguage || '';
+      const code = navLang.substring(0, 2).toLowerCase();
+      if (code === 'id') {
+        return 'Bahasa Indonesia';
+      }
+      return 'English'; // default to English
+    } catch (e) {
+      return 'English';
+    }
+  });
+
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isTyping, setIsTyping] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [previewCode, setPreviewCode] = useState<string | null>(null);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+  const [supabaseError, setSupabaseError] = useState<string | null>(null);
+  const [aiModel, setAiModel] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('davecore_ai_model');
+      return saved || 'gemini-3.5-flash';
+    } catch (e) {
+      return 'gemini-3.5-flash';
+    }
+  });
+
+  // Save chosen model to local storage
+  useEffect(() => {
+    try {
+      localStorage.setItem('davecore_ai_model', aiModel);
+    } catch (e) {
+      console.error(e);
+    }
+  }, [aiModel]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const userHasScrolledUpRef = useRef(false);
 
   const loadedPrefixRef = useRef<string | null>(null);
+
+  // Load and sync chat history from Supabase
+  const loadChatSessionsFromSupabase = async (activeUser: any) => {
+    const supabase = getSupabase();
+    if (!supabase || !activeUser) return null;
+    try {
+      const { data, error } = await supabase
+        .from('chat_history')
+        .select('*')
+        .eq('user_id', activeUser.id)
+        .order('updated_at', { ascending: false });
+
+      if (error) {
+        console.warn('Supabase: unable to fetch chat history (tables may not be created yet):', error);
+        if (
+          error.code === '42P01' || 
+          error.message?.includes('relation') || 
+          error.message?.includes('does not exist') || 
+          error.message?.includes('schema cache') || 
+          error.message?.includes('Could not find') || 
+          error.message?.includes('table')
+        ) {
+          setSupabaseError('missing_tables');
+        } else {
+          setSupabaseError(error.message || 'database_error');
+        }
+        return null;
+      }
+
+      setSupabaseError(null);
+      if (data && data.length > 0) {
+        const sessions: ChatSession[] = data.map((row: any) => ({
+          id: row.id,
+          title: row.title,
+          messages: row.messages || [],
+          timestamp: new Date(row.updated_at).getTime()
+        }));
+        return sessions;
+      }
+    } catch (err) {
+      console.warn('Supabase: exception while fetching chat history:', err);
+      setSupabaseError(err instanceof Error ? err.message : 'network_error');
+    }
+    return null;
+  };
 
   // Reactive accounts and device isolation synchronization
   useEffect(() => {
@@ -140,16 +267,11 @@ export default function App() {
     
     // 1. Load localized username
     const savedName = localStorage.getItem(`davecore_username_${prefix}`);
-    setUserName(savedName || (user ? user.email.split('@')[0] : ''));
+    setUserName(savedName || '');
 
     // 2. Load memories
     const savedMemories = localStorage.getItem(`davecore_memories_${prefix}`);
     setMemories(savedMemories ? JSON.parse(savedMemories) : []);
-
-    // 3. Load chat sessions
-    const savedSessions = localStorage.getItem(`davecore_sessions_${prefix}`);
-    const loadedSessions = savedSessions ? JSON.parse(savedSessions) : [];
-    setChatSessions(loadedSessions);
 
     // 4. Load localized theme
     const savedTheme = localStorage.getItem(`davecore_theme_${prefix}`);
@@ -166,27 +288,88 @@ export default function App() {
       setAppLang(code === 'id' ? 'Bahasa Indonesia' : 'English');
     }
 
-    if (loadedSessions.length > 0) {
-      setCurrentSessionId(loadedSessions[0].id);
-      setMessages(loadedSessions[0].messages || []);
-    } else {
+    // Load initial sessions asynchronously
+    const loadInitialSessions = async () => {
+      let loadedSessions: ChatSession[] = [];
+      if (user) {
+        const dbSessions = await loadChatSessionsFromSupabase(user);
+        if (dbSessions && dbSessions.length > 0) {
+          loadedSessions = dbSessions;
+          // Sync back to localStorage to keep it up to date
+          try {
+            localStorage.setItem(`davecore_sessions_${prefix}`, JSON.stringify(dbSessions));
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          // Fallback to localStorage if database is empty or offline
+          const savedSessions = localStorage.getItem(`davecore_sessions_${prefix}`);
+          loadedSessions = savedSessions ? JSON.parse(savedSessions) : [];
+        }
+      } else {
+        // Guest user: load from local storage
+        const savedSessions = localStorage.getItem(`davecore_sessions_${prefix}`);
+        loadedSessions = savedSessions ? JSON.parse(savedSessions) : [];
+      }
+
+      setChatSessions(loadedSessions);
+
+      // 6. Always start with a clean New Chat on page refresh/initial load
       setCurrentSessionId(null);
       setMessages([]);
-    }
 
-    // Set loadedPrefix to allow subsequent writes
-    loadedPrefixRef.current = prefix;
+      // 7. Always show landing page for new chat on refresh
+      setShowLanding(true);
+
+      // Allow future saves now that loading is completely finished
+      loadedPrefixRef.current = prefix;
+    };
+
+    loadInitialSessions();
   }, [user]);
 
-  // Persist chat sessions on update
+  // Persist chat sessions on update with debounced Supabase synchronisation
   useEffect(() => {
     const prefix = getStoragePrefix(user);
     if (loadedPrefixRef.current !== prefix) return; // Prevent premature default empty save
+    
+    // 1. Save to local storage
     try {
       localStorage.setItem(`davecore_sessions_${prefix}`, JSON.stringify(chatSessions));
     } catch (e) {
       console.error('Error saving chat sessions:', e);
     }
+
+    // 2. Save to Supabase if logged in
+    const syncSessionsToSupabase = async () => {
+      const supabase = getSupabase();
+      if (!supabase || !user) return;
+
+      try {
+        // Upsert sessions in parallel to ensure complete persistence
+        const promises = chatSessions.map(session => {
+          return supabase
+            .from('chat_history')
+            .upsert({
+              id: session.id,
+              user_id: user.id,
+              title: session.title,
+              messages: session.messages,
+              updated_at: new Date(session.timestamp || Date.now()).toISOString()
+            }, { onConflict: 'id' });
+        });
+        
+        await Promise.all(promises);
+      } catch (err) {
+        console.error('Failed to sync sessions to Supabase:', err);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      syncSessionsToSupabase();
+    }, 850); // 850ms debounce to prevent high-frequency DB queries during active chat streaming
+
+    return () => clearTimeout(timer);
   }, [chatSessions, user]);
 
   // Persist memories on update
@@ -198,7 +381,58 @@ export default function App() {
     } catch (e) {
       console.error('Error saving memories:', e);
     }
+
+    const syncMemoriesToDb = async () => {
+      const supabase = getSupabase();
+      if (supabase && user) {
+        try {
+          const { error: updateError } = await supabase
+            .from('user_profiles')
+            .update({ memories: memories })
+            .eq('id', user.id);
+
+          if (updateError) {
+            console.warn('Could not sync memories to Supabase (column may be missing):', updateError.message);
+          }
+        } catch (err) {
+          console.error('Failed to sync memories to Supabase:', err);
+        }
+      }
+    };
+
+    if (user) {
+      const timer = setTimeout(() => {
+        syncMemoriesToDb();
+      }, 800);
+      return () => clearTimeout(timer);
+    }
   }, [memories, user]);
+
+  // Persist showLanding on update
+  useEffect(() => {
+    const prefix = getStoragePrefix(user);
+    if (loadedPrefixRef.current !== prefix) return;
+    try {
+      localStorage.setItem(`davecore_show_landing_${prefix}`, String(showLanding));
+    } catch (e) {
+      console.error('Error saving showLanding:', e);
+    }
+  }, [showLanding, user]);
+
+  // Persist currentSessionId on update
+  useEffect(() => {
+    const prefix = getStoragePrefix(user);
+    if (loadedPrefixRef.current !== prefix) return;
+    try {
+      if (currentSessionId) {
+        localStorage.setItem(`davecore_current_session_id_${prefix}`, currentSessionId);
+      } else {
+        localStorage.removeItem(`davecore_current_session_id_${prefix}`);
+      }
+    } catch (e) {
+      console.error('Error saving currentSessionId:', e);
+    }
+  }, [currentSessionId, user]);
 
   // Save localized username helper
   const handleSaveUserName = (name: string) => {
@@ -262,49 +496,6 @@ export default function App() {
       extracted
     };
   };
-
-  const getInitialPrefix = () => {
-    try {
-      const savedUser = localStorage.getItem('davecore_active_user');
-      if (savedUser) {
-        const parsed = JSON.parse(savedUser);
-        if (parsed && parsed.email) {
-          return `user_${parsed.email}`;
-        }
-      }
-      const dId = localStorage.getItem('davecore_device_id') || 'dev_default';
-      return `device_${dId}`;
-    } catch (e) {
-      return 'device_default';
-    }
-  };
-
-  const [theme, setTheme] = useState<'Sistem' | 'Terang' | 'Gelap'>(() => {
-    try {
-      const prefix = getInitialPrefix();
-      return (localStorage.getItem(`davecore_theme_${prefix}`) as any) || 'Sistem';
-    } catch (e) {
-      return 'Sistem';
-    }
-  });
-
-  const [appLang, setAppLang] = useState<string>(() => {
-    try {
-      const prefix = getInitialPrefix();
-      const saved = localStorage.getItem(`davecore_app_lang_${prefix}`);
-      if (saved) return saved;
-      
-      // Auto-detect browser/system/phone language
-      const navLang = window.navigator.language || (window.navigator as any).userLanguage || '';
-      const code = navLang.substring(0, 2).toLowerCase();
-      if (code === 'id') {
-        return 'Bahasa Indonesia';
-      }
-      return 'English'; // default to English
-    } catch (e) {
-      return 'English';
-    }
-  });
 
   // Apply theme class to document element on mount and when theme changes
   useEffect(() => {
@@ -678,16 +869,6 @@ export default function App() {
   const localized = getLocalizedStrings(appLang);
   const localizedSuggestions = getLocalizedSuggestions(appLang);
 
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isTyping, setIsTyping] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [previewCode, setPreviewCode] = useState<string | null>(null);
-  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
-  const userHasScrolledUpRef = useRef(false);
-
   // Dynamic document title based on the active chat history's title
   useEffect(() => {
     if (currentSessionId) {
@@ -716,7 +897,7 @@ export default function App() {
     if (!container) return;
     
     // Check if the user is close to the bottom
-    const threshold = 150; // pixels of buffer
+    const threshold = 35; // tighter, more responsive threshold to prevent "stuck" scrolling
     const isCloseToBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
     
     userHasScrolledUpRef.current = !isCloseToBottom;
@@ -728,7 +909,9 @@ export default function App() {
     if (!container) return;
 
     const scrollIfNeeded = () => {
-      if (!userHasScrolledUpRef.current) {
+      const threshold = 35;
+      const isCloseToBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
+      if (isCloseToBottom && !userHasScrolledUpRef.current) {
         container.scrollTop = container.scrollHeight;
       }
     };
@@ -867,6 +1050,16 @@ export default function App() {
     let modelMessageId: string | null = null;
     let accumulatedContent = '';
 
+    const prefix = getStoragePrefix(user);
+    let toneStyle = 'Standar';
+    let customInstructions = '';
+    try {
+      toneStyle = localStorage.getItem(`davecore_tone_style_${prefix}`) || 'Standar';
+      customInstructions = localStorage.getItem(`davecore_custom_instructions_${prefix}`) || '';
+    } catch (e) {
+      console.warn('Could not read personalization from localStorage:', e);
+    }
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -875,6 +1068,9 @@ export default function App() {
           messages: [...messages, userMessage].map(({ role, content }) => ({ role, content })),
           appLang,
           memories, // Pass active account memories to the AI system
+          toneStyle,
+          customInstructions,
+          model: aiModel,
         }),
       });
 
@@ -1013,11 +1209,23 @@ export default function App() {
     }
   };
 
-  const handleDeleteSession = (sessionId: string) => {
+  const handleDeleteSession = async (sessionId: string) => {
     setChatSessions(prev => prev.filter(s => s.id !== sessionId));
     if (currentSessionId === sessionId) {
       setCurrentSessionId(null);
       setMessages([]);
+    }
+
+    const supabase = getSupabase();
+    if (supabase && user) {
+      try {
+        await supabase
+          .from('chat_history')
+          .delete()
+          .eq('id', sessionId);
+      } catch (err) {
+        console.error('Failed to delete session from Supabase:', err);
+      }
     }
   };
 
@@ -1202,15 +1410,28 @@ export default function App() {
             onBack={() => setShowSettings(false)}
             chatSessionsCount={chatSessions.length}
             totalMessagesCount={chatSessions.reduce((acc, s) => acc + s.messages.length, 0)}
-            onClearHistory={() => {
+            onClearHistory={async () => {
               setChatSessions([]);
               setCurrentSessionId(null);
               setMessages([]);
               const prefix = getStoragePrefix(user);
               try {
                 localStorage.removeItem(`davecore_sessions_${prefix}`);
+                localStorage.removeItem(`davecore_current_session_id_${prefix}`);
               } catch (e) {
                 console.error(e);
+              }
+
+              const supabase = getSupabase();
+              if (supabase && user) {
+                try {
+                  await supabase
+                    .from('chat_history')
+                    .delete()
+                    .eq('user_id', user.id);
+                } catch (err) {
+                  console.error('Failed to clear chat history in Supabase:', err);
+                }
               }
             }}
             theme={theme}
@@ -1220,6 +1441,9 @@ export default function App() {
             memories={memories}
             onAddMemory={(m) => setMemories(prev => [...prev, m])}
             onDeleteMemory={(idx) => setMemories(prev => prev.filter((_, i) => i !== idx))}
+            onSetMemories={setMemories}
+            aiModel={aiModel}
+            setAiModel={setAiModel}
             user={user}
             onLogout={async () => {
               const supabase = getSupabase();
@@ -1235,11 +1459,15 @@ export default function App() {
               setShowLanding(true);
             }}
             storagePrefix={getStoragePrefix(user)}
+            userName={userName}
+            onSaveUserName={handleSaveUserName}
+            supabaseError={supabaseError}
+            onSetSupabaseError={setSupabaseError}
           />
         ) : (
           <>
             {/* Header */}
-            <header className="h-14 flex items-center justify-between px-4 md:px-6 bg-transparent border-b border-claude-border/30 shrink-0">
+            <header className="sticky top-0 h-14 flex items-center justify-between px-4 md:px-6 bg-claude-bg/95 backdrop-blur-md border-b border-claude-border/30 shrink-0 z-20">
               <div className="flex items-center gap-2">
                 <button onClick={toggleSidebar} className="hidden lg:flex p-2 -ml-2 rounded-lg hover:bg-sidebar-hover text-muted" title="Buka Sidebar">
                   <PanelLeft size={20} />
@@ -1267,6 +1495,30 @@ export default function App() {
                 )}
               </div>
             </header>
+
+            {/* Supabase Error Alert Banner */}
+            {supabaseError && (
+              <div className="bg-amber-50/90 dark:bg-amber-950/20 border-b border-amber-200/50 dark:border-amber-900/30 px-4 py-2.5 flex items-center justify-between gap-3 text-xs z-10 animate-fadeIn shrink-0">
+                <div className="flex items-center gap-2 text-amber-800 dark:text-amber-400">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span className="font-medium">
+                    {supabaseError === 'missing_tables' 
+                      ? 'Sinkronisasi Supabase Non-aktif: Tabel database belum dibuat.' 
+                      : `Gagal menyinkronkan chat ke Supabase: ${supabaseError}`}
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowSettings(true);
+                    setConfirmDeleteAll(false);
+                    setIsSidebarOpen(false);
+                  }}
+                  className="px-2 py-1 bg-amber-100 hover:bg-amber-200/80 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-900 dark:text-amber-300 rounded font-semibold transition-all cursor-pointer text-[10px]"
+                >
+                  {supabaseError === 'missing_tables' ? 'Konfigurasi SQL' : 'Lihat Detail'}
+                </button>
+              </div>
+            )}
 
             {/* Chat Messages */}
             <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 px-4 py-6 md:p-10 flex flex-col items-center overflow-y-auto">

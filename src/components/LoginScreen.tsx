@@ -462,26 +462,28 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             <motion.form 
               key="email"
               onSubmit={handleEmailSubmit}
-              className="w-full flex flex-col gap-6 px-2 pt-2"
+              className="w-full flex-1 flex flex-col justify-between px-2 pt-2 pb-6 min-h-[60dvh]"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.3, ease: "easeOut" }}
             >
-              <div className="space-y-6">
+              <div className="space-y-12">
                 {/* Back button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setError(null);
-                    setStep('options');
-                  }}
-                  className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all cursor-pointer -ml-2 text-black"
-                >
-                  <ChevronLeft className="w-6 h-6 text-black" />
-                </button>
+                <div className="-mt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(null);
+                      setStep('options');
+                    }}
+                    className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all cursor-pointer -ml-2 text-black"
+                  >
+                    <ChevronLeft className="w-6 h-6 text-black" />
+                  </button>
+                </div>
 
-                <div className="space-y-4">
+                <div className="space-y-6">
                   <h2 className="text-[28px] sm:text-3xl font-extrabold text-black tracking-tight font-sans leading-tight">
                     Masukkan alamat email
                   </h2>
@@ -506,7 +508,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               </div>
 
               {/* Action Button: Bright/Vibrant pink if filled, pale/pastel pink if empty */}
-              <div>
+              <div className="pt-12">
                 <button
                   type="submit"
                   disabled={loading}
@@ -533,24 +535,26 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             <motion.form 
               key="otp"
               onSubmit={handleOtpVerify}
-              className="w-full flex flex-col gap-6 px-2 pt-2"
+              className="w-full flex-1 flex flex-col justify-between px-2 pt-2 pb-6 min-h-[60dvh]"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.3, ease: "easeOut" }}
             >
-              <div className="space-y-6">
+              <div className="space-y-12">
                 {/* Back button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setError(null);
-                    setStep('email');
-                  }}
-                  className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all cursor-pointer -ml-2 text-black"
-                >
-                  <ChevronLeft className="w-6 h-6 text-black" />
-                </button>
+                <div className="-mt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(null);
+                      setStep('email');
+                    }}
+                    className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all cursor-pointer -ml-2 text-black"
+                  >
+                    <ChevronLeft className="w-6 h-6 text-black" />
+                  </button>
+                </div>
 
                 <div className="space-y-6">
                   <h2 className="text-[28px] sm:text-3xl font-extrabold text-black tracking-tight font-sans leading-tight">
@@ -618,7 +622,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               </div>
 
               {/* Action Button: Bright/Vibrant pink if fully filled, pale/pastel pink if incomplete */}
-              <div>
+              <div className="pt-12">
                 <button
                   type="submit"
                   disabled={loading || !isOtpFilled}

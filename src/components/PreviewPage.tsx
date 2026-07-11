@@ -110,7 +110,7 @@ export function PreviewPage({ code, onClose }: PreviewPageProps) {
 
   const handleCopyUrl = () => {
     if (publishedUrl) {
-      const fullUrl = publishedUrl.startsWith('/') ? 'https://davecore-ai.onrender.com' + publishedUrl : publishedUrl;
+      const fullUrl = publishedUrl.startsWith('/') ? 'https://fluxell.web.id' + publishedUrl : publishedUrl;
       navigator.clipboard.writeText(fullUrl);
       setCopiedUrl(true);
       setTimeout(() => setCopiedUrl(false), 2000);
@@ -119,7 +119,7 @@ export function PreviewPage({ code, onClose }: PreviewPageProps) {
 
   const handleOpenNewTab = () => {
     if (tempUrl) {
-      const fullUrl = tempUrl.startsWith('/') ? 'https://davecore-ai.onrender.com' + tempUrl : tempUrl;
+      const fullUrl = tempUrl.startsWith('/') ? 'https://fluxell.web.id' + tempUrl : tempUrl;
       window.open(fullUrl, '_blank');
     } else {
       const blob = new Blob([code], { type: 'text/html' });
@@ -141,7 +141,7 @@ export function PreviewPage({ code, onClose }: PreviewPageProps) {
           </button>
           <div className="flex items-center bg-gray-100 rounded-md px-2 md:px-3 py-1.5 text-xs md:text-sm text-gray-600 border border-gray-200 truncate max-w-[180px] md:max-w-none font-mono">
             <span className="text-gray-400 mr-1">https://</span>
-            davecore-ai.onrender.com/pub/{tempId || 'live'}
+            fluxell.web.id/pub/{tempId || 'live'}
           </div>
         </div>
         
@@ -410,7 +410,7 @@ export function PreviewPage({ code, onClose }: PreviewPageProps) {
                 {/* URL container */}
                 <div className="flex items-center justify-between p-3 bg-gray-50 border border-gray-155 rounded-xl mb-5 shadow-inner">
                   <span className="text-xs font-mono text-gray-650 truncate max-w-[70%] select-all px-1">
-                    {publishedUrl.startsWith('/') ? 'https://davecore-ai.onrender.com' + publishedUrl : publishedUrl}
+                    {publishedUrl.startsWith('/') ? 'https://fluxell.web.id' + publishedUrl : publishedUrl}
                   </span>
                   <button
                     onClick={handleCopyUrl}
@@ -455,7 +455,7 @@ export function PreviewPage({ code, onClose }: PreviewPageProps) {
                     Kembali
                   </button>
                   <a
-                    href={publishedUrl.startsWith('/') ? 'https://davecore-ai.onrender.com' + publishedUrl : publishedUrl}
+                    href={publishedUrl.startsWith('/') ? 'https://fluxell.web.id' + publishedUrl : publishedUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 shadow-sm font-sans"

@@ -434,7 +434,7 @@ async function startServer() {
   // Chat API endpoint
   app.post("/api/chat", async (req, res) => {
     try {
-      const { messages, appLang, memories } = req.body;
+      const { messages, appLang, memories, customInstructions, toneStyle, model } = req.body;
       
       if (!messages || !Array.isArray(messages)) {
         return res.status(400).json({ error: "Invalid messages format" });
@@ -455,10 +455,29 @@ async function startServer() {
       });
 
       // Default Base System Instruction
-      let baseInstruction = "Anda adalah DAVECORE, asisten AI dengan kecerdasan super luar biasa. Anda berpikir dengan logika matematis murni, presisi analitis super tinggi, dan kemampuan kognitif yang tajam, taktis, mendalam, sekaligus pragmatis. Anda adalah gabungan dari ilmuwan komputer kelas dunia, insinyur perangkat lunak senior legendaris, matematikawan brilian, dan analis sistem jenius. Ketentuan penting dalam berpikir dan berinteraksi:\n1. Tulis kode pemrograman yang sempurna, rapi, berstandar industri mutakhir (clean code SOLID, performa tinggi, efisiensi memori optimal) dan langsung siap digunakan.\n2. Berikan solusi, jawaban, penjelasan teori, rumus, atau pemecahan masalah dengan ketajaman logika yang padat, jelas, akurat secara absolut, dan langsung ke inti tanpa basa-basi berbelit-belit. SANGAT PENTING: Anda dilarang keras menyebut atau memberi tahu pengguna bahwa Anda ber-IQ 170 atau mengklaim level IQ tertentu. Tetaplah rendah hati dan fokus memberikan bantuan pemrograman berkualitas tinggi.\n3. Berikan rekomendasi konkret, cerdas, inovatif, dan prediktif tentang optimalisasi masa depan, potensi edge cases, serta pemecahan celah keamanan secara instan.\n4. PENTING - DESAIN DAN ANIMASI WEB FLUIDA, PREMIUM & TIDAK KAKU: Ketika pengguna meminta Anda membuat website atau halaman HTML, buatlah desain yang luar biasa indah, modern, estetis, and dinamis, serta hindari struktur template yang kaku atau membosankan. Gunakan kombinasi tipografi elegan, spasi/padding yang seimbang, harmoni warna premium, efek kaca (glassmorphism), card bento modern, bayangan halus, dan tata letak yang interaktif serta sepenuhnya responsif. Jika menambahkan animasi atau transisi web, pastikan efek tersebut sangat mulus, organik, mengalir lembut, dan tidak kaku. Gunakan transisi Tailwind yang dinamis (contoh: `transition-all duration-500 ease-out`), efek hover interaktif, micro-interactions pada tombol/kartu, scroll reveal, serta efek fade-in/slide-up lembut untuk menghidupkan suasana website sehingga terlihat sangat profesional and premium.\n5. PENTING - RESPON CEPAT, INSTAN, & LANGSUNG KE INTI: Demi kecepatan respons maksimal, berikan jawaban secara langsung, padat, dan ringkas tanpa basa-basi, salam pembuka, atau penutup yang tidak perlu. Tuliskan jawaban, rumus, penjelasan, atau solusi teknis secepat mungkin.\n6. PENTING: Jika pengguna meminta dengan kalimat generik seperti 'Buatkan Code html' atau 'bikin html' (atau pertanyaan sejenis secara umum tanpa menjelaskan tujuan spesifik/jenis website yang ingin dibuat), Anda DILARANG langsung membuatkan kode utuh. Sebaliknya, Anda harus bertanya terlebih dahulu jenis HTML apa yang ingin mereka buat (contoh: apakah untuk halaman jualan, halaman topup game, portofolio, atau yang lainnya?). Tanyakan dengan singkat, sopan, dan ramah.\n7. MEMORI AI OTOMATIS: Jika pengguna membagikan informasi baru tentang diri mereka (nama, pekerjaan, teknologi favorit, kebiasaan, preferensi koding), Anda wajib menyimpannya. Untuk melakukannya, selipkan tag rahasia ini di bagian paling akhir respons Anda: `[MEMORY_ADD: <fakta singkat tentang pengguna>]`. Contoh: `[MEMORY_ADD: Nama panggilan pengguna adalah Rudi]` atau `[MEMORY_ADD: Pengguna adalah Vue.js developer]`. Pengguna tidak akan melihat tag ini karena disaring otomatis oleh frontend.";
+      let baseInstruction = "Anda adalah DAVECORE, asisten AI dengan kecerdasan super luar biasa. Anda berpikir dengan logika matematis murni, presisi analitis super tinggi, dan kemampuan kognitif yang tajam, taktis, mendalam, sekaligus pragmatis. Anda adalah gabungan dari ilmuwan komputer kelas dunia, insinyur perangkat lunak senior legendaris, matematikawan brilian, dan analis sistem jenius. Ketentuan penting dalam berpikir dan berinteraksi:\n1. Tulis kode pemrograman yang sempurna, rapi, berstandar industri mutakhir (clean code SOLID, performa tinggi, efisiensi memori optimal) dan langsung siap digunakan.\n2. Berikan solusi, jawaban, penjelasan teori, rumus, atau pemecahan masalah dengan ketajaman logika yang padat, jelas, akurat secara absolut, dan langsung ke inti tanpa basa-basi berbelit-belit. SANGAT PENTING: Anda dilarang keras menyebut atau memberi tahu pengguna bahwa Anda ber-IQ 170 atau mengklaim level IQ tertentu. Tetaplah rendah hati dan fokus memberikan bantuan pemrograman berkualitas tinggi.\n3. Berikan rekomendasi konkret, cerdas, inovatif, dan prediktif tentang optimalisasi masa depan, potensi edge cases, serta pemecahan celah keamanan secara instan.\n4. PENTING - DESAIN DAN ANIMASI WEB FLUIDA, PREMIUM & TIDAK KAKU: Ketika pengguna meminta Anda membuat website atau halaman HTML, buatlah desain yang luar biasa indah, modern, estetis, and dinamis, serta hindari struktur template yang kaku atau membosankan. Use kombinasi tipografi elegan, spasi/padding yang seimbang, harmoni warna premium, efek kaca (glassmorphism), card bento modern, bayangan halus, dan tata letak yang interaktif serta sepenuhnya responsif. Jika menambahkan animasi atau transisi web, pastikan efek tersebut sangat mulus, organik, mengalir lembut, dan tidak kaku. Gunakan transisi Tailwind yang dinamis (contoh: `transition-all duration-500 ease-out`), efek hover interaktif, micro-interactions pada tombol/kartu, scroll reveal, serta efek fade-in/slide-up lembut untuk menghidupkan suasana website sehingga terlihat sangat profesional and premium.\n5. PENTING - RESPON CEPAT, INSTAN, & LANGSUNG KE INTI: Demi kecepatan respons maksimal, berikan jawaban secara langsung, padat, dan ringkas tanpa basa-basi, salam pembuka, atau penutup yang tidak perlu. Tuliskan jawaban, rumus, penjelasan, atau solusi teknis secepat mungkin.\n6. PENTING: Jika pengguna meminta dengan kalimat generik seperti 'Buatkan Code html' atau 'bikin html' (atau pertanyaan sejenis secara umum tanpa menjelaskan tujuan spesifik/jenis website yang ingin dibuat), Anda DILARANG langsung membuatkan kode utuh. Sebaliknya, Anda harus bertanya terlebih dahulu jenis HTML apa yang ingin mereka buat (contoh: apakah untuk halaman jualan, halaman topup game, portofolio, atau yang lainnya?). Tanyakan dengan singkat, sopan, dan ramah.\n7. MEMORI AI OTOMATIS: Jika pengguna membagikan informasi baru tentang diri mereka (nama, pekerjaan, teknologi favorit, kebiasaan, preferensi koding), Anda wajib menyimpannya. Untuk melakukannya, selipkan tag rahasia ini di bagian paling akhir respons Anda: `[MEMORY_ADD: <fakta singkat tentang pengguna>]`. Contoh: `[MEMORY_ADD: Nama panggilan pengguna adalah Rudi]` atau `[MEMORY_ADD: Pengguna adalah Vue.js developer]`. Pengguna tidak akan melihat tag ini karena disaring otomatis oleh frontend.";
 
       if (appLang && typeof appLang === "string") {
-        baseInstruction += `\n\nSANGAT PENTING: Selalu berikan respons, penjelasan, komentar kode, bimbingan, penjelasan rumus, penjelasan teoritis, dialog, dan seluruh interaksi asisten dalam Bahasa/Language: "${appLang}". Jika "${appLang}" adalah 'Bahasa Indonesia' atau 'Basa Jawa' atau 'Basa Sunda', gunakan bahasa tersebut dengan natural, santun, dan sangat fasih. Jika "${appLang}" adalah 'English' atau bahasa global lainnya, gunakan bahasa tersebut sepenuhnya untuk semua percakapan.`;
+        baseInstruction += `\n\nSANGAT PENTING: Selalu berikan respons, penjelasan, komentar kode, bimbingan, penjelasan rumus, penjelasan teoritis, dialog, dan seluruh interaksi asisten dalam Bahasa/Language: "${appLang}". Jika "${appLang}" adalah 'Bahasa Indonesia' atau 'Basa Jawa' or 'Basa Sunda', gunakan bahasa tersebut dengan natural, santun, dan sangat fasih. Jika "${appLang}" adalah 'English' atau bahasa global lainnya, gunakan bahasa tersebut sepenuhnya untuk semua percakapan.`;
+      }
+
+      if (toneStyle && typeof toneStyle === "string" && toneStyle !== 'Standar') {
+        baseInstruction += `\n\n[GAYA DAN NADA BICARA PENTING]\nGaya dan nada dasar bicara Anda wajib menggunakan style: "${toneStyle}". `;
+        if (toneStyle === 'Kasual' || toneStyle === 'Santai') {
+          baseInstruction += "Berbicaralah dengan nada santai, bersahabat, kasual, hangat, tidak terlalu kaku seperti robot, layaknya teman dekat, namun tetap cerdas dan berwawasan tinggi.";
+        } else if (toneStyle === 'Profesional') {
+          baseInstruction += "Berbicaralah dengan nada formal, profesional, sopan, matang, berwibawa, dan berfokus pada hasil industri berkualitas tinggi.";
+        } else if (toneStyle === 'Ringkas') {
+          baseInstruction += "Berikan jawaban yang sepadat mungkin, langsung ke inti teknis, hilangkan penjelasan teoretis yang panjang, buat penjelasan Anda seefisien mungkin.";
+        } else if (toneStyle === 'Kreatif') {
+          baseInstruction += "Berbicaralah dengan nada kreatif, penuh analogi yang menarik, out-of-the-box, ekspresif, dan berikan gagasan-gagasan visioner.";
+        } else if (toneStyle === 'Akademis') {
+          baseInstruction += "Gunakan gaya bahasa akademis, formal, ilmiah, didukung argumen yang terstruktur, metodologis, kritis, dan mendalam.";
+        }
+      }
+
+      if (customInstructions && typeof customInstructions === "string" && customInstructions.trim()) {
+        baseInstruction += `\n\n[INSTRUKSI KHUSUS DARI PENGGUNA]\nAnda wajib mematuhi instruksi khusus dari pengguna ini dalam setiap respons Anda:\n"${customInstructions.trim()}"`;
       }
 
       if (memories && Array.isArray(memories) && memories.length > 0) {
@@ -468,6 +487,92 @@ async function startServer() {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
+
+      const activeModel = model || "gemini-3.5-flash";
+      const isOpenRouter = activeModel.startsWith("nvidia/") || activeModel.includes("llama");
+
+      if (isOpenRouter) {
+        const openRouterKey = process.env.OPENROUTER_API_KEY;
+        if (!openRouterKey) {
+          throw new Error("OPENROUTER_API_KEY belum dikonfigurasi di secrets Settings. Silakan hubungi admin atau konfigurasikan key Anda.");
+        }
+
+        const openRouterMessages = [
+          { role: "system", content: baseInstruction },
+          ...messages.map((m: any) => ({
+            role: m.role === "model" ? "assistant" : m.role,
+            content: m.content
+          }))
+        ];
+
+        const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${openRouterKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://ais-dev-wfqrxi4wbhw7mm2x3nhl45-540282209117.asia-southeast1.run.app",
+            "X-Title": "DAVECORE"
+          },
+          body: JSON.stringify({
+            model: activeModel,
+            messages: openRouterMessages,
+            temperature: 0.5,
+            stream: true
+          })
+        });
+
+        if (!openRouterResponse.ok) {
+          const errorText = await openRouterResponse.text();
+          throw new Error(`OpenRouter API error: ${errorText}`);
+        }
+
+        const reader = openRouterResponse.body;
+        if (!reader) {
+          throw new Error("Tidak menerima response body dari OpenRouter.");
+        }
+
+        let buffer = "";
+        for await (const chunk of reader as any) {
+          buffer += chunk.toString("utf-8");
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            if (trimmed === "data: [DONE]") continue;
+            if (trimmed.startsWith("data: ")) {
+              const dataStr = trimmed.slice(6);
+              try {
+                const parsed = JSON.parse(dataStr);
+                const deltaText = parsed.choices?.[0]?.delta?.content;
+                if (deltaText) {
+                  res.write(`data: ${JSON.stringify({ text: deltaText })}\n\n`);
+                }
+              } catch (e) {
+                // Abaikan error parser chunk parsial
+              }
+            }
+          }
+        }
+
+        if (buffer) {
+          const trimmed = buffer.trim();
+          if (trimmed.startsWith("data: ") && trimmed !== "data: [DONE]") {
+            try {
+              const parsed = JSON.parse(trimmed.slice(6));
+              const deltaText = parsed.choices?.[0]?.delta?.content;
+              if (deltaText) {
+                res.write(`data: ${JSON.stringify({ text: deltaText })}\n\n`);
+              }
+            } catch (e) {}
+          }
+        }
+
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
 
       // Create a fallback stream using direct Gemini
       const responseStream = await getAiClient().models.generateContentStream({
