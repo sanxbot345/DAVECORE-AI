@@ -1253,7 +1253,7 @@ export default function App() {
                 {/* Custom requested New Chat button with FontAwesome icon */}
                 <button
                   onClick={handleNewChat}
-                  className="w-10 h-10 flex items-center justify-center bg-white hover:bg-gray-50 dark:bg-zinc-900 dark:hover:bg-zinc-800 rounded-full transition-all text-gray-700 dark:text-gray-300 shadow-sm cursor-pointer border border-gray-200/50 dark:border-zinc-700/50"
+                  className="w-10 h-10 flex items-center justify-center bg-transparent hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-full transition-all text-[#1F1F1E] dark:text-gray-300 cursor-pointer border-0"
                   title="Chat Baru"
                 >
                   <i className="fa-solid fa-comment text-base"></i>

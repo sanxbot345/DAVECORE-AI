@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mail, Github, MessageSquare, ArrowRight, Loader2, KeyRound } from 'lucide-react';
+import { Mail, Github, ArrowRight, Loader2, ChevronLeft } from 'lucide-react';
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface LoginScreenProps {
@@ -12,14 +12,12 @@ const formatError = (err: any): string => {
   if (!err) return 'Terjadi kesalahan tidak diketahui.';
   if (typeof err === 'string') return err;
   
-  // Extract all readable fields from the error object
   let message = '';
   let details = '';
   let hint = '';
   let code = '';
   let status = '';
 
-  // 1. Direct checks on standard error fields
   if (typeof err === 'object') {
     if (err.message && typeof err.message === 'string') {
       message = err.message;
@@ -48,7 +46,6 @@ const formatError = (err: any): string => {
     }
   }
 
-  // 2. Reflective checks for non-enumerable properties (e.g. if the object inherits from Error but isn't detected as an instance)
   try {
     const props = Object.getOwnPropertyNames(err);
     for (const prop of props) {
@@ -72,7 +69,6 @@ const formatError = (err: any): string => {
     // Ignore reflection errors
   }
 
-  // If we found a message, return it with details
   if (message) {
     let finalMsg = message;
     if (code) finalMsg += ` (Code: ${code})`;
@@ -82,7 +78,6 @@ const formatError = (err: any): string => {
     return finalMsg;
   }
 
-  // If no message was found, serialize the object properties so we don't just output "{}"
   try {
     const allProps: any = {};
     const props = Object.getOwnPropertyNames(err);
@@ -105,12 +100,39 @@ const formatError = (err: any): string => {
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [step, setStep] = useState<'options' | 'email' | 'otp'>('options');
   const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState('');
+  const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(''));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [timeLeft, setTimeLeft] = useState(300); // 5 minutes in seconds
 
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const supabase = getSupabase();
+
+  // Reset OTP digits and start 5-minute countdown when step changes to OTP
+  useEffect(() => {
+    if (step === 'otp') {
+      setOtpDigits(Array(6).fill(''));
+      setTimeLeft(300); // 5 minutes
+      
+      // Wait for rendering then focus first input
+      setTimeout(() => {
+        inputRefs.current[0]?.focus();
+      }, 100);
+
+      const interval = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [step]);
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,13 +140,13 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
     setLoading(true);
     setError(null);
+    setInfoMessage(null);
 
     try {
       if (!isSupabaseConfigured || !supabase) {
-        setInfoMessage(`[MODE SIMULASI] Kode OTP simulasi dikirim ke ${email}. Gunakan kode 123456 untuk masuk.`);
-        setStep('otp');
-        setLoading(false);
-        return;
+        throw new Error(
+          'Supabase belum dikonfigurasi. Harap tentukan VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY di pengaturan lingkungan Anda untuk mengirimkan OTP asli.'
+        );
       }
 
       // Real Supabase Auth: signInWithOtp
@@ -136,10 +158,10 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       });
 
       if (otpError) {
-        throw otpError; // Let the catch block format it
+        throw otpError;
       }
 
-      setInfoMessage(`Kode OTP asli telah dikirim ke ${email}`);
+      setInfoMessage(`Kode OTP telah dikirim ke ${email}`);
       setStep('otp');
     } catch (err: any) {
       console.error(err);
@@ -151,54 +173,49 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
   const handleOtpVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!otp.trim()) return;
+    const token = otpDigits.join('').trim();
+    if (token.length < 6) {
+      setError('Harap masukkan semua 6 digit kode OTP.');
+      return;
+    }
 
     setLoading(true);
     setError(null);
 
     try {
       if (!isSupabaseConfigured || !supabase) {
-        if (otp.trim() === '123456') {
-          onLoginSuccess({
-            email: email.trim(),
-            id: `simulated_${email.trim().replace(/[^a-zA-Z0-9]/g, '_')}`,
-            provider: 'simulated'
-          });
-        } else {
-          throw new Error('Kode OTP simulasi salah! Harap gunakan kode 123456.');
-        }
-        setLoading(false);
-        return;
+        throw new Error(
+          'Supabase belum dikonfigurasi. Harap tentukan VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY di pengaturan lingkungan Anda.'
+        );
       }
 
-      // Real Supabase Verification: try 'magiclink' first, then 'signup' fallback for new users
+      // Real Supabase Verification: try 'email' first (standard for email OTP), then fallback to 'signup' or 'magiclink'
       let { data, error: verifyError } = await supabase.auth.verifyOtp({
         email: email.trim(),
-        token: otp.trim(),
-        type: 'magiclink'
+        token: token,
+        type: 'email'
       });
 
       if (verifyError) {
         // Fallback to 'signup' if first attempt fails (newly registered user)
         const { data: signupData, error: signupError } = await supabase.auth.verifyOtp({
           email: email.trim(),
-          token: otp.trim(),
+          token: token,
           type: 'signup'
         });
 
         if (signupError) {
-          // Additional fallback to 'email' if both fail (some client or server configurations)
-          const { data: emailData, error: emailError } = await supabase.auth.verifyOtp({
+          // Additional fallback to 'magiclink' if both fail
+          const { data: magicData, error: magicError } = await supabase.auth.verifyOtp({
             email: email.trim(),
-            token: otp.trim(),
-            type: 'email' as any
+            token: token,
+            type: 'magiclink'
           });
 
-          if (emailError) {
-            // Throw verifyError or signupError or emailError
-            throw verifyError || signupError || emailError;
+          if (magicError) {
+            throw verifyError || signupError || magicError;
           } else {
-            data = emailData;
+            data = magicData;
           }
         } else {
           data = signupData;
@@ -222,20 +239,46 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     }
   };
 
-  // Real OAuth login for third-party providers (Github / Discord)
-  const handleThirdPartyLogin = async (provider: 'github' | 'discord') => {
+  const handleResendOtp = async () => {
+    if (timeLeft > 0 || loading) return;
+
+    setLoading(true);
+    setError(null);
+    setInfoMessage(null);
+
+    try {
+      if (!isSupabaseConfigured || !supabase) {
+        throw new Error('Supabase belum dikonfigurasi.');
+      }
+
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          emailRedirectTo: window.location.origin
+        }
+      });
+
+      if (otpError) throw otpError;
+
+      setInfoMessage(`Kode OTP baru telah dikirim ke ${email}`);
+      setTimeLeft(300); // reset countdown
+    } catch (err: any) {
+      console.error(err);
+      setError(formatError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleThirdPartyLogin = async (provider: 'github' | 'google' | 'discord') => {
     setLoading(true);
     setError(null);
 
     try {
       if (!isSupabaseConfigured || !supabase) {
-        onLoginSuccess({
-          email: `${provider}_user@example.com`,
-          id: `simulated_${provider}_user`,
-          provider: provider
-        });
-        setLoading(false);
-        return;
+        throw new Error(
+          `Supabase belum dikonfigurasi. Harap tentukan VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY di pengaturan lingkungan Anda untuk masuk dengan ${provider} secara real.`
+        );
       }
 
       // Real Supabase OAuth signin
@@ -254,37 +297,114 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     }
   };
 
+  // 6-digit input navigation helpers
+  const handleOtpChange = (index: number, value: string) => {
+    const cleanVal = value.replace(/\D/g, '');
+    if (!cleanVal) {
+      const newDigits = [...otpDigits];
+      newDigits[index] = '';
+      setOtpDigits(newDigits);
+      return;
+    }
+
+    const lastChar = cleanVal.substring(cleanVal.length - 1);
+    const newDigits = [...otpDigits];
+    newDigits[index] = lastChar;
+    setOtpDigits(newDigits);
+
+    // Auto focus next input
+    if (index < 5 && lastChar) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      if (!otpDigits[index] && index > 0) {
+        const newDigits = [...otpDigits];
+        newDigits[index - 1] = '';
+        setOtpDigits(newDigits);
+        inputRefs.current[index - 1]?.focus();
+      } else {
+        const newDigits = [...otpDigits];
+        newDigits[index] = '';
+        setOtpDigits(newDigits);
+      }
+    }
+  };
+
+  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (pastedData) {
+      const newDigits = Array(6).fill('');
+      for (let i = 0; i < pastedData.length; i++) {
+        newDigits[i] = pastedData[i];
+      }
+      setOtpDigits(newDigits);
+      const focusIndex = Math.min(pastedData.length, 5);
+      inputRefs.current[focusIndex]?.focus();
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s}`;
+  };
+
+  // Dynamic state checks for active/bright colors
+  const isEmailFilled = email.trim().length > 0;
+  const isOtpFilled = !otpDigits.some(d => !d);
+
   return (
-    <div className="min-h-[100dvh] w-full bg-white text-black flex flex-col items-center justify-between py-12 px-6 font-sans">
+    <div className="min-h-[100dvh] w-full bg-white text-black flex flex-col items-center py-12 px-6 font-sans">
       
-      {/* Spacer to align content to the bottom */}
-      <div className="flex-1 flex flex-col items-center justify-end w-full max-w-md pb-6">
+      {/* Content wrapper taking up full screen height */}
+      <div className="flex-1 flex flex-col w-full max-w-md">
         
-        {/* Dynamic step transitions */}
         <AnimatePresence mode="wait">
           {step === 'options' && (
             <motion.div 
               key="options"
-              className="w-full flex flex-col gap-3 px-2"
+              className="w-full flex flex-col gap-3 px-2 flex-1 justify-end pb-4"
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -15 }}
               transition={{ duration: 0.35, ease: "easeInOut" }}
             >
+              {/* App logo or branding is centered in the upper screen space */}
+              <div className="text-center mb-12 flex-1 flex flex-col items-center justify-center gap-3">
+                <img 
+                  src="/favicon.png" 
+                  alt="DAVECORE AI Logo" 
+                  className="w-24 h-24 rounded-full object-cover border border-gray-100 shadow-sm"
+                  referrerPolicy="no-referrer"
+                />
+                <h1 className="font-sans text-2xl font-extrabold tracking-widest text-black">DAVECORE AI</h1>
+              </div>
+
+              {!isSupabaseConfigured && (
+                <div className="p-4 bg-amber-50 border border-amber-200/60 rounded-2xl text-[11px] text-amber-800 font-medium mb-4 text-center leading-relaxed">
+                  <p className="font-bold text-xs mb-1">⚠️ Supabase Belum Aktif</p>
+                  Autentikasi memerlukan variabel lingkungan <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">VITE_SUPABASE_URL</code> dan <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">VITE_SUPABASE_ANON_KEY</code>.
+                </div>
+              )}
+
               {error && (
                 <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 font-medium mb-2 text-center">
                   {error}
                 </div>
               )}
 
-              {/* Lanjutkan Dengan email (Primary Button - black background, white text) */}
+              {/* Lanjutkan Dengan email */}
               <button
                 onClick={() => {
                   setError(null);
                   setStep('email');
                 }}
                 disabled={loading}
-                className="w-full h-14 bg-black text-white rounded-[20px] hover:bg-neutral-900 active:scale-98 transition-all flex items-center px-6 gap-4 font-semibold text-sm shadow-md cursor-pointer justify-between"
+                className="w-full h-14 bg-black text-white rounded-[20px] hover:bg-neutral-900 active:scale-98 transition-all flex items-center px-6 gap-4 font-semibold text-sm shadow-md cursor-pointer justify-between disabled:opacity-50"
               >
                 <div className="flex items-center gap-4">
                   <Mail className="w-5 h-5 text-white" />
@@ -293,11 +413,11 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 <ArrowRight className="w-4 h-4 text-neutral-400" />
               </button>
 
-              {/* Lanjutkan Dengan Github (White background, thin border, black text) */}
+              {/* Lanjutkan Dengan Github */}
               <button
                 onClick={() => handleThirdPartyLogin('github')}
                 disabled={loading}
-                className="w-full h-14 bg-white text-black border border-gray-200 rounded-[20px] hover:bg-gray-50 active:scale-98 transition-all flex items-center px-6 gap-4 font-semibold text-sm cursor-pointer justify-between"
+                className="w-full h-14 bg-white text-black border border-gray-200 rounded-[20px] hover:bg-gray-50 active:scale-98 transition-all flex items-center px-6 gap-4 font-semibold text-sm cursor-pointer justify-between disabled:opacity-50"
               >
                 <div className="flex items-center gap-4">
                   <Github className="w-5 h-5 text-black" />
@@ -306,15 +426,30 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 <ArrowRight className="w-4 h-4 text-gray-400" />
               </button>
 
-              {/* Lanjutkan Dengan Discord (White background, thin border, black text) */}
+              {/* Lanjutkan Dengan Google */}
               <button
-                onClick={() => handleThirdPartyLogin('discord')}
+                onClick={() => handleThirdPartyLogin('google')}
                 disabled={loading}
-                className="w-full h-14 bg-white text-black border border-gray-200 rounded-[20px] hover:bg-gray-50 active:scale-98 transition-all flex items-center px-6 gap-4 font-semibold text-sm cursor-pointer justify-between"
+                className="w-full h-14 bg-white text-black border border-gray-200 rounded-[20px] hover:bg-gray-50 active:scale-98 transition-all flex items-center px-6 gap-4 font-semibold text-sm cursor-pointer justify-between disabled:opacity-50"
               >
                 <div className="flex items-center gap-4">
                   <span className="w-5 h-5 flex items-center justify-center text-black">
-                    <i className="fa-brands fa-discord text-xl"></i>
+                    <i className="fa-brands fa-google text-lg"></i>
+                  </span>
+                  <span>Lanjutkan Dengan Google</span>
+                </div>
+                <ArrowRight className="w-4 h-4 text-gray-400" />
+              </button>
+
+              {/* Lanjutkan Dengan Discord */}
+              <button
+                onClick={() => handleThirdPartyLogin('discord')}
+                disabled={loading}
+                className="w-full h-14 bg-white text-black border border-gray-200 rounded-[20px] hover:bg-gray-50 active:scale-98 transition-all flex items-center px-6 gap-4 font-semibold text-sm cursor-pointer justify-between disabled:opacity-50"
+              >
+                <div className="flex items-center gap-4">
+                  <span className="w-5 h-5 flex items-center justify-center text-black">
+                    <i className="fa-brands fa-discord text-lg"></i>
                   </span>
                   <span>Lanjutkan Dengan Discord</span>
                 </div>
@@ -327,61 +462,67 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             <motion.form 
               key="email"
               onSubmit={handleEmailSubmit}
-              className="w-full flex flex-col gap-4 px-2"
+              className="w-full flex flex-col gap-6 px-2 pt-2"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.3, ease: "easeOut" }}
             >
-              <div>
-                <h3 className="font-semibold text-lg text-gray-800 mb-1">Masuk dengan Email</h3>
-                <p className="text-xs text-gray-500">Kami akan mengirimkan kode verifikasi OTP ke alamat email Anda.</p>
-              </div>
-
-              {error && (
-                <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 font-medium text-center">
-                  {error}
-                </div>
-              )}
-
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider pl-1">Alamat Email</label>
-                <input
-                  type="email"
-                  placeholder="name@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full h-13 px-4 rounded-[16px] border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/10 focus:border-purple-500 transition-all text-sm font-medium"
-                  required
-                  autoFocus
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="flex gap-3 pt-2">
+              <div className="space-y-6">
+                {/* Back button */}
                 <button
                   type="button"
-                  onClick={() => setStep('options')}
-                  disabled={loading}
-                  className="flex-1 h-12 border border-gray-200 text-gray-600 rounded-[16px] text-xs font-bold hover:bg-gray-50 active:scale-98 transition-all cursor-pointer"
+                  onClick={() => {
+                    setError(null);
+                    setStep('options');
+                  }}
+                  className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all cursor-pointer -ml-2 text-black"
                 >
-                  Kembali
+                  <ChevronLeft className="w-6 h-6 text-black" />
                 </button>
+
+                <div className="space-y-4">
+                  <h2 className="text-[28px] sm:text-3xl font-extrabold text-black tracking-tight font-sans leading-tight">
+                    Masukkan alamat email
+                  </h2>
+
+                  {error && (
+                    <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 font-medium text-center">
+                      {error}
+                    </div>
+                  )}
+
+                  <input
+                    type="email"
+                    placeholder="Alamat email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full h-14 px-5 rounded-2xl bg-[#f4f4f5] text-black placeholder-gray-400 focus:outline-none focus:bg-gray-100/90 focus:ring-0 text-base font-medium transition-all"
+                    required
+                    autoFocus
+                    disabled={loading}
+                  />
+                </div>
+              </div>
+
+              {/* Action Button: Bright/Vibrant pink if filled, pale/pastel pink if empty */}
+              <div>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex-1 h-12 bg-black text-white rounded-[16px] text-xs font-bold hover:bg-neutral-900 active:scale-98 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                  className={`w-full h-14 font-bold rounded-full shadow-md text-sm cursor-pointer flex items-center justify-center transition-all ${
+                    isEmailFilled 
+                      ? 'bg-[#ff3b5c] hover:bg-[#ff1e43] text-white active:scale-98' 
+                      : 'bg-[#ffadb9] text-white/90 opacity-80 cursor-not-allowed'
+                  }`}
                 >
                   {loading ? (
-                    <>
+                    <div className="flex items-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span>Mengirim...</span>
-                    </>
+                    </div>
                   ) : (
-                    <>
-                      <span>Lanjut</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </>
+                    <span>Lanjutkan</span>
                   )}
                 </button>
               </div>
@@ -392,76 +533,108 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             <motion.form 
               key="otp"
               onSubmit={handleOtpVerify}
-              className="w-full flex flex-col gap-4 px-2"
+              className="w-full flex flex-col gap-6 px-2 pt-2"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.3, ease: "easeOut" }}
             >
-              <div>
-                <h3 className="font-semibold text-lg text-gray-800 mb-1">Verifikasi Kode OTP</h3>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Kami telah mengirimkan 6 digit kode OTP ke <span className="font-semibold text-gray-800 break-all">{email}</span>.
-                </p>
-              </div>
-
-              {infoMessage && (
-                <div className="p-3 bg-purple-50 border border-purple-100 rounded-xl text-[11px] text-purple-800 leading-relaxed font-medium">
-                  {infoMessage}
-                </div>
-              )}
-
-              {error && (
-                <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 font-medium text-center">
-                  {error}
-                </div>
-              )}
-
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider pl-1 flex items-center gap-1.5">
-                  <KeyRound className="w-3.5 h-3.5" />
-                  <span>Kode Verifikasi OTP</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="123456"
-                  maxLength={6}
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                  className="w-full h-13 px-4 rounded-[16px] border border-gray-200 bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/10 focus:border-purple-500 transition-all text-center tracking-[0.5em] font-mono text-lg font-bold"
-                  required
-                  autoFocus
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="flex gap-3 pt-2">
+              <div className="space-y-6">
+                {/* Back button */}
                 <button
                   type="button"
                   onClick={() => {
                     setError(null);
                     setStep('email');
                   }}
-                  disabled={loading}
-                  className="flex-1 h-12 border border-gray-200 text-gray-600 rounded-[16px] text-xs font-bold hover:bg-gray-50 active:scale-98 transition-all cursor-pointer"
+                  className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all cursor-pointer -ml-2 text-black"
                 >
-                  Ubah Email
+                  <ChevronLeft className="w-6 h-6 text-black" />
                 </button>
+
+                <div className="space-y-6">
+                  <h2 className="text-[28px] sm:text-3xl font-extrabold text-black tracking-tight font-sans leading-tight">
+                    Masukkan kode verifikasi
+                  </h2>
+
+                  {infoMessage && (
+                    <div className="p-3 bg-green-50 border border-green-100 rounded-xl text-[11px] text-green-800 leading-relaxed font-medium">
+                      {infoMessage}
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 font-medium text-center">
+                      {error}
+                    </div>
+                  )}
+
+                  {/* 6 separate box-by-box OTP inputs with auto focus jumps */}
+                  <div className="flex items-center justify-between gap-1 w-full max-w-sm mx-auto py-4">
+                    {Array(6).fill(null).map((_, idx) => (
+                      <React.Fragment key={idx}>
+                        <input
+                          ref={(el) => { inputRefs.current[idx] = el; }}
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={1}
+                          value={otpDigits[idx]}
+                          onChange={(e) => handleOtpChange(idx, e.target.value)}
+                          onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                          onPaste={handleOtpPaste}
+                          className="flex-1 aspect-square max-w-[48px] bg-gray-100 text-center font-bold text-lg sm:text-xl text-black rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ffadb9] focus:bg-white transition-all border border-transparent focus:border-transparent"
+                          required
+                          autoFocus={idx === 0}
+                          disabled={loading}
+                        />
+                        {idx < 5 && (
+                          <span className="text-gray-300 font-bold select-none text-xs sm:text-sm">-</span>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
+
+                  {/* Expiration countdown and resend button */}
+                  <div className="flex flex-col items-center justify-center gap-3 py-2 text-center">
+                    <div className="text-sm font-semibold text-gray-500 font-sans">
+                      Waktu kadaluarsa: <span className="font-mono text-black font-bold">{formatTime(timeLeft)}</span>
+                    </div>
+                    
+                    <button
+                      type="button"
+                      onClick={handleResendOtp}
+                      disabled={timeLeft > 0 || loading}
+                      className={`text-xs font-bold transition-all px-4 py-2 rounded-full border ${
+                        timeLeft === 0 && !loading
+                          ? 'border-gray-300 text-black hover:bg-gray-50 active:scale-98 cursor-pointer'
+                          : 'border-gray-100 text-gray-300 cursor-not-allowed'
+                      }`}
+                    >
+                      Kirim ulang code
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Button: Bright/Vibrant pink if fully filled, pale/pastel pink if incomplete */}
+              <div>
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="flex-1 h-12 bg-black text-white rounded-[16px] text-xs font-bold hover:bg-neutral-900 active:scale-98 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                  disabled={loading || !isOtpFilled}
+                  className={`w-full h-14 font-bold rounded-full shadow-md text-sm cursor-pointer flex items-center justify-center transition-all ${
+                    isOtpFilled 
+                      ? 'bg-[#ff3b5c] hover:bg-[#ff1e43] text-white active:scale-98' 
+                      : 'bg-[#ffadb9] text-white/90 opacity-80 cursor-not-allowed'
+                  }`}
                 >
                   {loading ? (
-                    <>
+                    <div className="flex items-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span>Memverifikasi...</span>
-                    </>
+                    </div>
                   ) : (
-                    <>
-                      <span>Masuk</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </>
+                    <span>Lanjutkan</span>
                   )}
                 </button>
               </div>
@@ -470,7 +643,6 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         </AnimatePresence>
       </div>
 
-      {/* Footer credits or simple link */}
       <div className="text-[11px] text-gray-400 font-mono tracking-wider text-center">
       </div>
     </div>
