@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Message, ChatSession } from './types';
+import { Message, ChatSession, CanvasDocument } from './types';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { PreviewPage } from './components/PreviewPage';
+import { CanvasPanel } from './components/CanvasPanel';
 import { TypingIndicator } from './components/TypingIndicator';
-import { LandingPage } from './components/LandingPage';
-import { Menu, PanelLeft, ArrowRight, Settings, Trash2, MessageSquare, Database, Sparkles, X, Check, AlertCircle, ArrowDown, Code2, PenTool, Lightbulb, BookOpen, Pen } from 'lucide-react';
+import { Menu, PanelLeft, ArrowRight, Settings, Trash2, MessageSquare, Database, Sparkles, X, Check, AlertCircle, ArrowDown, Code2, PenTool, Lightbulb, BookOpen, Pen, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import SettingsComponent from './components/Settings';
 import { LoginScreen } from './components/LoginScreen';
@@ -70,20 +70,20 @@ const getInitialPrefix = () => {
 };
 
 export default function App() {
-  const [showLanding, setShowLanding] = useState(() => {
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [onboardingStep, setOnboardingStep] = useState<'agreement' | 'name' | 'none'>(() => {
     try {
       const prefix = getInitialPrefix();
       const savedName = localStorage.getItem(`davecore_username_${prefix}`);
-      if (!savedName || !savedName.trim()) {
-        return true;
+      const agreedOnboarding = localStorage.getItem(`davecore_onboarding_agreed_${prefix}`) === 'true';
+      if (savedName && savedName.trim() && agreedOnboarding) {
+        return 'none';
       }
-      const saved = localStorage.getItem(`davecore_show_landing_${prefix}`);
-      return saved === 'false' ? false : true;
+      return 'agreement';
     } catch (e) {
-      return true;
+      return 'agreement';
     }
   });
-  const [showNameModal, setShowNameModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
   const [deleteSuccess, setDeleteSuccess] = useState(false);
@@ -191,6 +191,9 @@ export default function App() {
   const [isTyping, setIsTyping] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [previewCode, setPreviewCode] = useState<string | null>(null);
+  const [canvasOpen, setCanvasOpen] = useState(false);
+  const [activeCanvasDoc, setActiveCanvasDoc] = useState<CanvasDocument | null>(null);
+  const [isCanvasGenerating, setIsCanvasGenerating] = useState(false);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
   const [supabaseError, setSupabaseError] = useState<string | null>(null);
   const [aiModel, setAiModel] = useState<string>(() => {
@@ -263,6 +266,7 @@ export default function App() {
 
   // Reactive accounts and device isolation synchronization
   useEffect(() => {
+    setIsLoadingProfile(true);
     const prefix = getStoragePrefix(user);
     
     // 1. Load localized username
@@ -288,8 +292,39 @@ export default function App() {
       setAppLang(code === 'id' ? 'Bahasa Indonesia' : 'English');
     }
 
+    // Load profile and memories from Supabase if authenticated
+    const loadProfileFromSupabase = async (activeUser: any) => {
+      const supabase = getSupabase();
+      if (!supabase || !activeUser) return;
+      try {
+        const { data, error } = await supabase
+          .from('user_profiles')
+          .select('username, memories')
+          .eq('id', activeUser.id)
+          .maybeSingle();
+        if (data) {
+          if (data.username) {
+            setUserName(data.username);
+            localStorage.setItem(`davecore_username_${prefix}`, data.username);
+            localStorage.setItem(`davecore_onboarding_agreed_${prefix}`, 'true');
+            setOnboardingStep('none');
+          }
+          if (data.memories && Array.isArray(data.memories)) {
+            setMemories(data.memories);
+            localStorage.setItem(`davecore_memories_${prefix}`, JSON.stringify(data.memories));
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase: exception while loading profile:', err);
+      }
+    };
+
     // Load initial sessions asynchronously
     const loadInitialSessions = async () => {
+      if (user) {
+        await loadProfileFromSupabase(user);
+      }
+
       let loadedSessions: ChatSession[] = [];
       if (user) {
         const dbSessions = await loadChatSessionsFromSupabase(user);
@@ -318,11 +353,28 @@ export default function App() {
       setCurrentSessionId(null);
       setMessages([]);
 
-      // 7. Always show landing page for new chat on refresh
-      setShowLanding(true);
+      // 7. Check if onboarding completed
+      const finalName = localStorage.getItem(`davecore_username_${prefix}`);
+      const agreedOnboarding = localStorage.getItem(`davecore_onboarding_agreed_${prefix}`) === 'true';
+      if (user) {
+        // Registered / logged-in users bypass the agreement screen entirely!
+        if (finalName && finalName.trim()) {
+          setOnboardingStep('none');
+        } else {
+          setOnboardingStep('name');
+        }
+      } else {
+        // Guest user
+        if (finalName && finalName.trim() && agreedOnboarding) {
+          setOnboardingStep('none');
+        } else {
+          setOnboardingStep('agreement');
+        }
+      }
 
       // Allow future saves now that loading is completely finished
       loadedPrefixRef.current = prefix;
+      setIsLoadingProfile(false);
     };
 
     loadInitialSessions();
@@ -408,16 +460,7 @@ export default function App() {
     }
   }, [memories, user]);
 
-  // Persist showLanding on update
-  useEffect(() => {
-    const prefix = getStoragePrefix(user);
-    if (loadedPrefixRef.current !== prefix) return;
-    try {
-      localStorage.setItem(`davecore_show_landing_${prefix}`, String(showLanding));
-    } catch (e) {
-      console.error('Error saving showLanding:', e);
-    }
-  }, [showLanding, user]);
+
 
   // Persist currentSessionId on update
   useEffect(() => {
@@ -435,10 +478,21 @@ export default function App() {
   }, [currentSessionId, user]);
 
   // Save localized username helper
-  const handleSaveUserName = (name: string) => {
+  const handleSaveUserName = async (name: string) => {
     setUserName(name);
     const prefix = getStoragePrefix(user);
     localStorage.setItem(`davecore_username_${prefix}`, name);
+
+    const supabase = getSupabase();
+    if (supabase && user) {
+      try {
+        await supabase
+          .from('user_profiles')
+          .upsert({ id: user.id, username: name }, { onConflict: 'id' });
+      } catch (err) {
+        console.error('Failed to sync username to Supabase:', err);
+      }
+    }
   };
 
   // Extract memories automatically from conversation message content
@@ -495,6 +549,90 @@ export default function App() {
       cleanedText: text.replace(/\[MEMORY_ADD:\s*.*?\]/gi, '').trim(),
       extracted
     };
+  };
+
+  const extractCanvasDocs = (text: string) => {
+    const docs: CanvasDocument[] = [];
+    
+    // Match <canvas id="..." title="..." language="...">...</canvas>
+    // Since the document stream might not be finished, the closing tag </canvas> is optional
+    const regex = /<canvas\s+id="([^"]+)"\s+title="([^"]+)"\s+language="([^"]+)"\s*>([\s\S]*?)(?:<\/canvas>|$)/gi;
+    const matches = [...text.matchAll(regex)];
+    
+    for (const match of matches) {
+      const [fullMatch, id, title, language, content] = match;
+      docs.push({
+        id: id.trim(),
+        title: title.trim(),
+        language: language.trim(),
+        content: content
+      });
+    }
+    
+    let cleanedText = text.replace(/<canvas\s+id="([^"]+)"\s+title="([^"]+)"\s+language="([^"]+)"\s*>([\s\S]*?)(?:<\/canvas>|$)/gi, (match, id, title, language) => {
+      return `\n\n:::canvas-card\nID: ${id}\nTitle: ${title}\nLanguage: ${language}\n:::\n\n`;
+    });
+    
+    return { cleanedText, docs };
+  };
+
+  const handleSaveCanvasContent = (id: string, updatedContent: string) => {
+    if (!activeCanvasDoc) return;
+    
+    const updatedDoc = { ...activeCanvasDoc, content: updatedContent };
+    setActiveCanvasDoc(updatedDoc);
+    
+    // Update the canvasDoc in the active session
+    if (currentSessionId) {
+      setChatSessions(prev => prev.map(s => 
+        s.id === currentSessionId
+          ? { ...s, canvasDoc: updatedDoc }
+          : s
+      ));
+    }
+  };
+
+  const handleRequestCanvasRevision = (doc: CanvasDocument, prompt: string) => {
+    const formattedPrompt = `[MINTA REVISI CANVAS]
+Dokumen: "${doc.title}" (ID: "${doc.id}", Bahasa: "${doc.language}")
+
+Isi Dokumen Terkini:
+\`\`\`${doc.language}
+${doc.content}
+\`\`\`
+
+Permintaan Revisi Pengguna:
+"${prompt}"
+
+Silakan revisi/lanjutkan isi dokumen canvas tersebut sesuai instruksi di atas secara cerdas. Pastikan untuk selalu mengeluarkan seluruh isi dokumen yang baru secara lengkap di dalam tag <canvas id="${doc.id}" title="${doc.title}" language="${doc.language}">...konten lengkap baru...</canvas> agar tersinkronisasi otomatis!`;
+
+    handleSend(formattedPrompt);
+  };
+
+  const handleOpenCanvas = (id: string, title: string, language: string) => {
+    // Search the message history for any full canvas blocks matching this ID to load its content
+    let foundContent = '';
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      const regex = new RegExp(`<canvas\\s+id="${id}"[^>]*>([\\s\\S]*?)(?:<\\/canvas>|$)`, 'i');
+      const match = msg.content.match(regex);
+      if (match) {
+        foundContent = match[1];
+        break;
+      }
+    }
+    
+    if (!foundContent && activeCanvasDoc && activeCanvasDoc.id === id) {
+      foundContent = activeCanvasDoc.content;
+    }
+    
+    setActiveCanvasDoc({
+      id,
+      title,
+      language,
+      content: foundContent || 'Dokumen kosong atau sedang dimuat...'
+    });
+    setCanvasOpen(true);
   };
 
   // Apply theme class to document element on mount and when theme changes
@@ -883,7 +1021,11 @@ export default function App() {
 
   const scrollToBottom = (behavior: 'smooth' | 'auto' = 'smooth', force = false) => {
     if (chatContainerRef.current) {
-      if (force || !userHasScrolledUpRef.current) {
+      const container = chatContainerRef.current;
+      const hasStreaming = messages.some(msg => msg.isStreaming) || isTyping;
+      const scrolledUpSignificantly = container.scrollHeight - container.scrollTop - container.clientHeight > 350;
+      
+      if (force || !userHasScrolledUpRef.current || (hasStreaming && !scrolledUpSignificantly)) {
         chatContainerRef.current.scrollTo({
           top: chatContainerRef.current.scrollHeight,
           behavior,
@@ -896,8 +1038,9 @@ export default function App() {
     const container = chatContainerRef.current;
     if (!container) return;
     
-    // Check if the user is close to the bottom
-    const threshold = 35; // tighter, more responsive threshold to prevent "stuck" scrolling
+    const hasStreaming = messages.some(msg => msg.isStreaming) || isTyping;
+    // When streaming, use a larger threshold (150px) to prevent scroll updates from getting stuck due to layout lags
+    const threshold = hasStreaming ? 150 : 35;
     const isCloseToBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
     
     userHasScrolledUpRef.current = !isCloseToBottom;
@@ -909,10 +1052,20 @@ export default function App() {
     if (!container) return;
 
     const scrollIfNeeded = () => {
-      const threshold = 35;
+      const hasStreaming = messages.some(msg => msg.isStreaming) || isTyping;
+      const threshold = hasStreaming ? 150 : 35;
       const isCloseToBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
-      if (isCloseToBottom && !userHasScrolledUpRef.current) {
-        container.scrollTop = container.scrollHeight;
+      
+      if (hasStreaming) {
+        const scrolledUpSignificantly = container.scrollHeight - container.scrollTop - container.clientHeight > 350;
+        if (!scrolledUpSignificantly) {
+          container.scrollTop = container.scrollHeight;
+          userHasScrolledUpRef.current = false;
+        }
+      } else {
+        if (isCloseToBottom && !userHasScrolledUpRef.current) {
+          container.scrollTop = container.scrollHeight;
+        }
       }
     };
 
@@ -1049,6 +1202,9 @@ export default function App() {
 
     let modelMessageId: string | null = null;
     let accumulatedContent = '';
+    let currentPlanning: any = null;
+    let currentToolsUsed: any[] = [];
+    let currentGroundingMetadata: any = null;
 
     const prefix = getStoragePrefix(user);
     let toneStyle = 'Standar';
@@ -1110,19 +1266,92 @@ export default function App() {
                     )
                   );
                 }
-              } else if (data.text) {
-                accumulatedContent += data.text;
-                setIsTyping(false); // Hide the bounce typing indicator as soon as text stream begins
-
+              } else if (data.planning) {
+                currentPlanning = data.planning;
+                setIsTyping(false);
                 if (!modelMessageId) {
                   modelMessageId = (Date.now() + 1).toString();
-                  const initialModelMessage: Message = { id: modelMessageId!, role: 'model', content: accumulatedContent, isStreaming: true };
+                  const initialModelMessage: Message = { 
+                    id: modelMessageId!, 
+                    role: 'model', 
+                    content: '', 
+                    isStreaming: true,
+                    toolsUsed: currentToolsUsed
+                  };
+                  (initialModelMessage as any).planning = currentPlanning;
                   setMessages((prev) => [...prev, initialModelMessage]);
                 } else {
                   setMessages((prev) => 
                     prev.map((msg) => 
                       msg.id === modelMessageId 
-                        ? { ...msg, content: accumulatedContent } 
+                        ? { ...msg, planning: currentPlanning } as any
+                        : msg
+                    )
+                  );
+                }
+              } else if (data.toolStatus) {
+                const existingIdx = currentToolsUsed.findIndex(t => t.name === data.toolStatus.name);
+                if (existingIdx > -1) {
+                  currentToolsUsed[existingIdx] = data.toolStatus;
+                } else {
+                  currentToolsUsed.push(data.toolStatus);
+                }
+                setIsTyping(false);
+                if (!modelMessageId) {
+                  modelMessageId = (Date.now() + 1).toString();
+                  const initialModelMessage: Message = { 
+                    id: modelMessageId!, 
+                    role: 'model', 
+                    content: '', 
+                    isStreaming: true,
+                    toolsUsed: [...currentToolsUsed]
+                  };
+                  setMessages((prev) => [...prev, initialModelMessage]);
+                } else {
+                  setMessages((prev) => 
+                    prev.map((msg) => 
+                      msg.id === modelMessageId 
+                        ? { ...msg, toolsUsed: [...currentToolsUsed] } 
+                        : msg
+                    )
+                  );
+                }
+              } else if (data.groundingMetadata) {
+                currentGroundingMetadata = data.groundingMetadata;
+                if (modelMessageId) {
+                  setMessages((prev) => 
+                    prev.map((msg) => 
+                      msg.id === modelMessageId 
+                        ? { ...msg, groundingMetadata: currentGroundingMetadata } 
+                        : msg
+                    )
+                  );
+                }
+              } else if (data.text) {
+                accumulatedContent += data.text;
+                setIsTyping(false); // Hide the bounce typing indicator as soon as text stream begins
+
+                // Extract streamed canvas documents in real-time
+                const { docs } = extractCanvasDocs(accumulatedContent);
+                if (docs.length > 0) {
+                  const latestDoc = docs[docs.length - 1];
+                  setActiveCanvasDoc(latestDoc);
+                  setCanvasOpen(true);
+                  setIsCanvasGenerating(true);
+                }
+
+                if (!modelMessageId) {
+                  modelMessageId = (Date.now() + 1).toString();
+                  const initialModelMessage: Message = { id: modelMessageId!, role: 'model', content: accumulatedContent, isStreaming: true, toolsUsed: [...currentToolsUsed] };
+                  if (currentPlanning) {
+                    (initialModelMessage as any).planning = currentPlanning;
+                  }
+                  setMessages((prev) => [...prev, initialModelMessage]);
+                } else {
+                  setMessages((prev) => 
+                    prev.map((msg) => 
+                      msg.id === modelMessageId 
+                        ? { ...msg, content: accumulatedContent, toolsUsed: [...currentToolsUsed], planning: currentPlanning } as any
                         : msg
                     )
                   );
@@ -1149,8 +1378,9 @@ export default function App() {
       ));
     } finally {
       setIsTyping(false);
+      setIsCanvasGenerating(false);
       if (modelMessageId) {
-        const { cleanedText, extracted } = extractMemoryTags(accumulatedContent);
+        const { cleanedText: textNoMemories, extracted } = extractMemoryTags(accumulatedContent);
 
         // Auto-persist extracted memories per account in real-time
         if (extracted.length > 0) {
@@ -1165,19 +1395,43 @@ export default function App() {
           });
         }
 
+        // Extract canvas documents and replace with visual canvas cards in the chat bubble
+        const { cleanedText: textNoCanvas, docs } = extractCanvasDocs(textNoMemories);
+        
+        let finalCanvasDoc: CanvasDocument | null = null;
+        if (docs.length > 0) {
+          finalCanvasDoc = docs[docs.length - 1];
+          setActiveCanvasDoc(finalCanvasDoc);
+          setCanvasOpen(true);
+        }
+
+        const finalText = textNoCanvas;
+
+        const finalModelMessage: Message = { 
+          id: modelMessageId, 
+          role: 'model', 
+          content: finalText, 
+          isStreaming: false,
+          toolsUsed: [...currentToolsUsed],
+          groundingMetadata: currentGroundingMetadata
+        };
+        if (currentPlanning) {
+          (finalModelMessage as any).planning = currentPlanning;
+        }
+
         setMessages((prev) => 
           prev.map((msg) => 
             msg.id === modelMessageId 
-              ? { ...msg, content: cleanedText, isStreaming: false } 
+              ? finalModelMessage
               : msg
           )
         );
 
-        const finalModelMessage: Message = { id: modelMessageId, role: 'model', content: cleanedText, isStreaming: false };
         setChatSessions(prev => prev.map(s => 
           s.id === targetSessionId
             ? { 
                 ...s, 
+                canvasDoc: finalCanvasDoc || s.canvasDoc || null,
                 messages: [
                   ...s.messages.filter(m => m.id !== modelMessageId),
                   finalModelMessage
@@ -1192,6 +1446,8 @@ export default function App() {
   const handleNewChat = () => {
     setMessages([]);
     setCurrentSessionId(null);
+    setActiveCanvasDoc(null);
+    setCanvasOpen(false);
     setIsSidebarOpen(false);
     userHasScrolledUpRef.current = false;
   };
@@ -1201,6 +1457,15 @@ export default function App() {
     if (session) {
       setCurrentSessionId(sessionId);
       setMessages(session.messages);
+      
+      if (session.canvasDoc) {
+        setActiveCanvasDoc(session.canvasDoc);
+        setCanvasOpen(true);
+      } else {
+        setActiveCanvasDoc(null);
+        setCanvasOpen(false);
+      }
+      
       setIsSidebarOpen(false);
       userHasScrolledUpRef.current = false;
       setTimeout(() => {
@@ -1214,6 +1479,8 @@ export default function App() {
     if (currentSessionId === sessionId) {
       setCurrentSessionId(null);
       setMessages([]);
+      setActiveCanvasDoc(null);
+      setCanvasOpen(false);
     }
 
     const supabase = getSupabase();
@@ -1250,71 +1517,180 @@ export default function App() {
     );
   }
 
-  if (showLanding) {
+  if (isLoadingProfile) {
     return (
-      <>
-        <LandingPage appLang={appLang} onStartChat={() => {
-          if (userName.trim()) {
-            setShowLanding(false);
-          } else {
-            setShowNameModal(true);
-          }
-        }} />
-        {showNameModal && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-md flex items-center justify-center z-50 p-4">
-            <div className="bg-[#FAF9F6] border border-[#E5E4E1] p-8 md:p-10 rounded-[32px] shadow-2xl max-w-md w-full relative overflow-hidden flex flex-col">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-100/30 rounded-full blur-2xl pointer-events-none" />
-              <div className="absolute bottom-0 left-0 w-32 h-32 bg-amber-100/20 rounded-full blur-2xl pointer-events-none" />
-              
-              <div className="flex items-center gap-2 mb-6 justify-center">
-                <span className="bg-blue-100 text-blue-800 text-[10px] font-mono px-2.5 py-1 rounded-full uppercase font-bold tracking-wider">DAVECORE AI</span>
+      <div className="fixed inset-0 z-50 bg-[#FAF9F6] text-[#1F1F1E] flex flex-col items-center justify-center p-6 font-sans select-none">
+        {/* Aesthetic backgrounds */}
+        <div className="absolute top-0 right-0 w-80 h-80 bg-purple-100/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-80 h-80 bg-blue-100/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="flex flex-col items-center gap-4 relative z-10 animate-pulse">
+          <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+          <p className="text-xs font-mono tracking-widest text-gray-400 uppercase">MEMUAT PROFIL DAVECORE AI...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (onboardingStep !== 'none') {
+    return (
+      <div className="fixed inset-0 z-50 bg-[#FAF9F6] text-[#1F1F1E] flex flex-col items-center justify-center p-6 md:p-12 font-sans select-none overflow-y-auto">
+        {/* Aesthetic backgrounds */}
+        <div className="absolute top-0 right-0 w-[450px] h-[450px] bg-purple-100/20 rounded-full blur-[100px] pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-[450px] h-[450px] bg-blue-100/10 rounded-full blur-[100px] pointer-events-none" />
+
+        {/* Logo & Nama AI di bagian atas onboarding */}
+        <div className="relative z-10 flex items-center justify-center gap-3 mb-6">
+          <img 
+            src="/logo.png" 
+            alt="DAVECORE AI Logo" 
+            className="w-12 h-12 object-contain"
+            referrerPolicy="no-referrer"
+          />
+          <span className="font-sans text-xl font-extrabold tracking-widest text-[#1F1F1E]">DAVECORE AI</span>
+        </div>
+
+        <AnimatePresence mode="wait">
+          {onboardingStep === 'agreement' && (
+            <motion.div
+              key="agreement"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+              className="max-w-2xl w-full flex flex-col justify-center items-center relative z-10 py-8"
+            >
+              <div className="flex justify-center mb-6">
+                <span className="bg-purple-100/80 text-purple-800 text-[11px] font-mono px-4 py-1.5 rounded-full uppercase font-bold tracking-widest">PERSYARATAN & PRIVASI</span>
               </div>
-              
-              <h2 className="font-serif text-2xl md:text-3xl font-semibold text-[#1F1F1E] text-center mb-2 leading-tight">
-                {localized.nameModalTitle}
+
+              <h2 className="font-serif text-3xl md:text-5xl font-black text-[#1F1F1E] text-center mb-6 leading-tight tracking-tight">
+                Persetujuan Akun Anda
               </h2>
-              <p className="text-xs text-gray-500 text-center mb-8">
-                {localized.nameModalDesc}
-              </p>
               
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                if (userName.trim()) {
-                  handleSaveUserName(userName.trim());
-                  setShowLanding(false);
-                  setShowNameModal(false);
-                }
-              }} className="space-y-4 relative z-10">
+              <div className="space-y-6 text-sm md:text-base text-gray-600/95 text-center max-w-xl mb-10 leading-relaxed">
+                <p>
+                  Selamat datang di <strong className="text-gray-900 font-serif">DAVECORE AI</strong>. Sebelum melanjutkan pembuatan profil, mohon menyetujui ketentuan privasi kami:
+                </p>
+                <div className="text-left bg-white/40 backdrop-blur-md border border-gray-150/40 rounded-[28px] p-6 md:p-8 space-y-4 shadow-[0_8px_30px_rgb(0,0,0,0.01)]">
+                  <p className="flex items-start gap-3">
+                    <span className="text-purple-600 font-bold shrink-0 text-base">✓</span>
+                    <span><strong className="text-gray-800">Keamanan Data:</strong> Sesi percakapan Anda dienkripsi dan disimpan secara terisolasi.</span>
+                  </p>
+                  <p className="flex items-start gap-3">
+                    <span className="text-purple-600 font-bold shrink-0 text-base">✓</span>
+                    <span><strong className="text-gray-800">Sinkronisasi Cloud:</strong> Riwayat chat disinkronkan ke cloud agar dapat diakses dari perangkat mana pun.</span>
+                  </p>
+                  <p className="flex items-start gap-3">
+                    <span className="text-purple-600 font-bold shrink-0 text-base">✓</span>
+                    <span><strong className="text-gray-800">Kontrol Penuh:</strong> Anda dapat menghapus seluruh riwayat chat kapan saja melalui menu Setelan.</span>
+                  </p>
+                </div>
+                <p className="text-[12px] text-gray-400 italic mt-4">
+                  Dengan mengklik "Saya Setuju", Anda menyetujui pembuatan akun DAVECORE AI Anda dan sinkronisasi data terkait.
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-4 w-full max-w-md mt-4">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const supabase = getSupabase();
+                    if (supabase) {
+                      try {
+                        await supabase.auth.signOut();
+                      } catch (e) {
+                        console.error('Error signing out:', e);
+                      }
+                    }
+                    setUser(null);
+                    localStorage.removeItem('davecore_active_user');
+                    setOnboardingStep('agreement');
+                  }}
+                  className="flex-1 py-4 border border-red-200 text-red-600 hover:bg-red-50/40 rounded-[200px] text-xs md:text-sm font-semibold transition-all cursor-pointer text-center"
+                >
+                  Tolak & Keluar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const prefix = getStoragePrefix(user);
+                    localStorage.setItem(`davecore_onboarding_agreed_${prefix}`, 'true');
+                    setOnboardingStep('name');
+                  }}
+                  className="flex-1 py-4 bg-[#1F1F1E] hover:bg-black text-white rounded-[200px] text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  Saya Setuju <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {onboardingStep === 'name' && (
+            <motion.div
+              key="name-input"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+              className="max-w-xl w-full flex flex-col justify-center items-center relative z-10 py-8"
+            >
+              <div className="flex justify-center mb-6">
+                <span className="bg-blue-100/80 text-blue-800 text-[11px] font-mono px-4 py-1.5 rounded-full uppercase font-bold tracking-widest">PROFIL ANDA</span>
+              </div>
+
+              <h2 className="font-serif text-3xl md:text-5xl font-black text-[#1F1F1E] text-center mb-4 leading-tight tracking-tight">
+                Siapa Nama Anda?
+              </h2>
+              <p className="text-sm md:text-base text-gray-500 text-center mb-10 leading-relaxed max-w-md">
+                Silakan masukkan nama panggilan Anda untuk mempersonalisasi sapaan dan interaksi dengan DAVECORE AI.
+              </p>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (userName.trim()) {
+                    handleSaveUserName(userName.trim());
+                    const prefix = getStoragePrefix(user);
+                    localStorage.setItem(`davecore_onboarding_agreed_${prefix}`, 'true');
+                    setOnboardingStep('none');
+                  }
+                }}
+                className="space-y-8 w-full max-w-md flex flex-col items-center"
+              >
                 <input
                   type="text"
-                  placeholder={localized.nameInputPlaceholder}
+                  placeholder="Masukkan nama panggilan..."
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
-                  className="w-full px-5 py-3.5 bg-white border border-gray-200 rounded-[200px] text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all font-medium text-center"
+                  className="w-full text-xl md:text-3xl font-serif text-center font-bold bg-transparent border-b-2 border-gray-200 focus:border-purple-600 outline-none pb-4 transition-all py-2 px-4 text-gray-800 placeholder:text-gray-300 placeholder:font-sans"
                   autoFocus
                   required
                 />
-                
-                <div className="flex gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowNameModal(false)}
-                    className="flex-1 py-3 border border-gray-200 text-gray-600 rounded-[200px] text-xs font-semibold hover:bg-gray-50 transition-all cursor-pointer"
-                  >
-                    {localized.cancelBtn}
-                  </button>
+
+                <div className="flex gap-4 w-full pt-4">
+                  {!user && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOnboardingStep('agreement');
+                      }}
+                      className="flex-1 py-4 border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-[200px] text-xs md:text-sm font-semibold transition-all cursor-pointer text-center"
+                    >
+                      Kembali
+                    </button>
+                  )}
                   <button
                     type="submit"
-                    className="flex-1 py-3 bg-[#1F1F1E] text-white rounded-[200px] text-xs font-semibold hover:bg-black transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="flex-1 py-4 bg-[#1F1F1E] hover:bg-black text-white rounded-[200px] text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0"
                   >
-                    {localized.startChatBtn} <ArrowRight className="w-3.5 h-3.5" />
+                    Mulai Chatting <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>
               </form>
-            </div>
-          </div>
-        )}
-      </>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     );
   }
 
@@ -1334,8 +1710,8 @@ export default function App() {
       <aside className={`fixed lg:relative z-50 flex flex-col transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0 w-[300px]' : '-translate-x-full w-[300px] lg:translate-x-0 lg:w-0'} bg-sidebar-bg border-r border-claude-border h-[100dvh] lg:h-full overflow-hidden flex-shrink-0`}>
         
         {/* Header Sidebar: DAVECORE */}
-        <div className="flex items-center justify-center h-16 border-b border-claude-border/40 w-[300px] shrink-0 bg-sidebar-bg/50">
-          <span className="font-serif text-base font-bold tracking-widest text-[#1F1F1E] flex items-center gap-2">
+        <div className="flex items-center justify-start px-6 h-16 border-b border-claude-border/40 w-[300px] shrink-0 bg-sidebar-bg/50">
+          <span className="font-serif text-[18px] font-extrabold tracking-widest text-[#1F1F1E] flex items-center gap-2">
             DAVECORE
           </span>
         </div>
@@ -1403,8 +1779,10 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Main Chat Area */}
-      <main className="flex-1 flex flex-col h-full relative min-w-0">
+      {/* Split screen content area holding both Main Chat and File Canvas side-by-side */}
+      <div className="flex-1 flex h-full overflow-hidden">
+        {/* Main Chat Area */}
+        <main className={`flex-1 flex flex-col h-full relative min-w-0 ${canvasOpen ? 'border-r border-gray-200' : ''}`}>
         {showSettings ? (
           <SettingsComponent
             onBack={() => setShowSettings(false)}
@@ -1456,7 +1834,7 @@ export default function App() {
               }
               setUser(null);
               localStorage.removeItem('davecore_active_user');
-              setShowLanding(true);
+              setOnboardingStep('agreement');
             }}
             storagePrefix={getStoragePrefix(user)}
             userName={userName}
@@ -1565,7 +1943,7 @@ export default function App() {
               ) : (
                 <div className="w-full max-w-full md:px-6 lg:px-12 space-y-8 pb-32">
                   {messages.map((msg) => (
-                    <ChatMessage key={msg.id} message={msg} onPreviewCode={setPreviewCode} />
+                    <ChatMessage key={msg.id} message={msg} onPreviewCode={setPreviewCode} onOpenCanvas={handleOpenCanvas} />
                   ))}
                   {isTyping && <TypingIndicator />}
                   <div ref={messagesEndRef} />
@@ -1604,6 +1982,18 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* File Canvas Component (Side-panel overlay) */}
+      {canvasOpen && activeCanvasDoc && (
+        <CanvasPanel
+          doc={activeCanvasDoc}
+          onClose={() => setCanvasOpen(false)}
+          onSave={(updatedContent) => handleSaveCanvasContent(activeCanvasDoc.id, updatedContent)}
+          onRevision={(prompt) => handleRequestCanvasRevision(activeCanvasDoc, prompt)}
+          isGenerating={isCanvasGenerating}
+        />
+      )}
+      </div>
 
       {/* Preview Page Overlay */}
       {previewCode !== null && (

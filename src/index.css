@@ -227,3 +227,35 @@ div::-webkit-scrollbar-thumb:hover {
 .markdown-body tr:hover {
   background-color: rgba(0, 0, 0, 0.005);
 }
+
+/* Blinking Cursor & Streaming fade animation */
+@keyframes cursorBlink {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+.streaming-cursor::after {
+  content: '▋';
+  display: inline-block;
+  color: var(--color-claude-accent);
+  margin-left: 4px;
+  animation: cursorBlink 0.8s infinite;
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+@keyframes streamFade {
+  from {
+    opacity: 0.6;
+    transform: translateY(1px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.is-streaming-text {
+  animation: streamFade 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+

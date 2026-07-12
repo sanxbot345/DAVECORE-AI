@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Vibrate, AlertCircle, Check, Settings as SettingsIcon, X, Brain, Trash2, Plus, LogOut, ShieldAlert, Camera, Globe, Sparkles, Cpu } from 'lucide-react';
+import { ArrowLeft, Vibrate, AlertCircle, Check, Settings as SettingsIcon, X, Brain, Trash2, Plus, LogOut, ShieldAlert, Camera, Globe, Sparkles, Cpu, Sliders } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getSupabase } from '../lib/supabase';
 
@@ -167,6 +167,21 @@ export default function Settings({
       return '';
     }
   });
+
+  const [typedPlaceholder, setTypedPlaceholder] = useState("");
+
+  useEffect(() => {
+    const fullPlaceholder = "Bagikan hal lain yg perlu di pertimbangkan DAVECORE AI dalam responsnya.";
+    let index = 0;
+    const interval = setInterval(() => {
+      setTypedPlaceholder(fullPlaceholder.slice(0, index + 1));
+      index++;
+      if (index >= fullPlaceholder.length) {
+        clearInterval(interval);
+      }
+    }, 25); // 25ms per character for an ultra-smooth typing effect
+    return () => clearInterval(interval);
+  }, []);
 
   // Sync profile & personalization changes with Local Storage and Supabase database
   useEffect(() => {
@@ -570,8 +585,8 @@ CREATE POLICY "Pengguna dapat mengelola riwayat chat mereka sendiri"
       {/* AI Personalization Section */}
       <div className="bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800/80 rounded-[28px] p-6 shadow-[0_4px_24px_rgba(0,0,0,0.01)] mb-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 rounded-xl">
-            <Sparkles size={20} />
+          <div className="p-2 bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 rounded-xl flex items-center justify-center w-9 h-9">
+            <i className="fa-solid fa-sliders text-base"></i>
           </div>
           <div>
             <h3 className="font-serif text-[15px] md:text-[16px] font-bold text-gray-900 dark:text-zinc-100">Personalisasi AI</h3>
@@ -626,79 +641,13 @@ CREATE POLICY "Pengguna dapat mengelola riwayat chat mereka sendiri"
                 setCustomInstructions(e.target.value);
               }
             }}
-            placeholder="Contoh: 'Gunakan Bahasa Indonesia yang santai tapi profesional. Selalu sertakan contoh implementasi kode TypeScript untuk setiap penyelesaian masalah koding.'"
+            placeholder={typedPlaceholder}
             className="w-full h-24 p-3 text-xs md:text-sm bg-gray-50 border border-gray-100 rounded-xl outline-none focus:ring-1 focus:ring-purple-500/50 focus:border-purple-500 dark:bg-zinc-850 dark:border-zinc-800 dark:text-zinc-100 resize-none leading-relaxed placeholder:text-gray-400 dark:placeholder:text-zinc-600"
           />
         </div>
       </div>
 
-      {/* AI Model Selection Section */}
-      <div className="bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800/80 rounded-[28px] p-6 shadow-[0_4px_24px_rgba(0,0,0,0.01)] mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-xl">
-              <Cpu size={20} />
-            </div>
-            <div>
-              <h3 className="font-serif text-[15px] md:text-[16px] font-bold text-gray-900 dark:text-zinc-100">Model AI</h3>
-            </div>
-          </div>
-          <span className="px-2.5 py-0.5 bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 text-[10px] font-bold rounded-full uppercase tracking-wider">
-            Engine
-          </span>
-        </div>
 
-        <p className="text-[11px] text-gray-400 dark:text-zinc-500 mb-4 leading-relaxed">
-          Pilih model AI yang ingin Anda gunakan untuk memproses percakapan Anda.
-        </p>
-
-        <div className="space-y-2">
-          {[
-            { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', desc: 'Sangat cepat, cerdas, efisien, dan mendukung analisis multi-modal.', badge: 'Default' },
-            { id: 'nvidia/llama-nemotron-embed-vl-1b-v2:free', name: 'Llama Nemotron Embed', desc: 'Model Llama Nemotron Embed VL 1B v2 via OpenRouter (Gratis).', badge: 'OpenRouter' },
-            { id: 'nvidia/llama-nemotron-rerank-vl-1b-v2:free', name: 'Llama Nemotron Rerank', desc: 'Model Llama Nemotron Rerank VL 1B v2 via OpenRouter (Gratis).', badge: 'OpenRouter' }
-          ].map((m) => {
-            const isActive = (aiModel || 'gemini-3.5-flash') === m.id;
-            return (
-              <button
-                key={m.id}
-                onClick={() => {
-                  triggerHaptic();
-                  setAiModel?.(m.id);
-                }}
-                className={`w-full text-left p-3 rounded-xl border transition-all cursor-pointer flex items-start justify-between gap-3 ${
-                  isActive
-                    ? 'bg-indigo-50/50 border-indigo-500 dark:bg-indigo-950/20 dark:border-indigo-500 shadow-sm'
-                    : 'bg-gray-50/50 hover:bg-gray-100/50 border-gray-100 dark:bg-zinc-850/50 dark:hover:bg-zinc-800/50 dark:border-zinc-800/80'
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className={`font-serif text-xs font-bold ${isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-gray-900 dark:text-zinc-100'}`}>
-                      {m.name}
-                    </span>
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider ${
-                      m.badge === 'Default'
-                        ? 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
-                        : 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
-                    }`}>
-                      {m.badge}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-gray-450 dark:text-zinc-500 mt-1 leading-normal">
-                    {m.desc}
-                  </p>
-                </div>
-                {isActive && (
-                  <div className="w-5 h-5 rounded-full bg-indigo-500 text-white flex items-center justify-center shrink-0">
-                    <Check size={12} strokeWidth={3} />
-                  </div>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
       {/* App Prefs Card (Haptics, etc.) */}
       <div className="bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800/80 rounded-[28px] shadow-[0_4px_24px_rgba(0,0,0,0.01)] mb-6 p-2">
